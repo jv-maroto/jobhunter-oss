@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+.venv/
+venv/
+*.db
+*.db-journal
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.turbo/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Data generated
+backend/data/applications/
+backend/data/posts/
+backend/data/cache/
+backend/jobhunter.db
+backend/jobhunter.db-journal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

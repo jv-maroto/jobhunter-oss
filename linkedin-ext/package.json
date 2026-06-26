@@ -1,0 +1,18 @@
+{
+  "name": "jobhunter-linkedin-ext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extensión Chrome MV3 que conecta el dashboard JobHunter con LinkedIn como asistente del usuario.",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.4"
+  }
+}

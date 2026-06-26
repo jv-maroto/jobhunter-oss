@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+*.db-journal
+data/applications/
+data/posts/
+data/cache/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+README.md
+docker-compose.yml

@@ -1,0 +1,205 @@
+"""Generador de CV adaptado en formato Typst, compilado a PDF.
+
+Internamente usa el LLMRouter (tier=generation) con fallback automatico.
+Mantiene la firma publica `generate_cv(cv_master, job, out_dir, language=None)`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from app.ai.client import run_sync
+from app.ai.router import get_router
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+CV_SYSTEM = """Eres un experto en adaptar CVs tecnicos al puesto exacto.
+
+Recibes:
+- cv_master: JSON con datos completos del candidato.
+- cv_template: codigo Typst de plantilla con marcadores.
+- job: titulo, empresa, descripcion.
+
+Tu tarea: devolver UN UNICO documento Typst (.typ) listo para compilar.
+
+REGLAS:
+- Mantener la estructura visual de la plantilla.
+- Reordenar projects y skills segun lo que pide la oferta (lo mas relevante primero).
+- Reescribir el summary (3-4 lineas) para alinearlo con la oferta.
+- Maximo 1-1.5 paginas.
+- No inventar experiencia, titulos ni stack. Usar solo datos del cv_master.
+- Idioma del CV: castellano si la oferta esta en castellano; si esta en ingles, ingles.
+- Devolver UNICAMENTE el contenido Typst, sin markdown fences, sin comentarios extra."""
+
+
+def _detect_language(text: str) -> str:
+    text_l = text.lower()
+    es_markers = ["desarrollador", "ingeniero", "responsable", "habilidades", "experiencia", "se valora"]
+    en_markers = ["developer", "engineer", "responsibilities", "requirements", "we offer"]
+    es = sum(1 for m in es_markers if m in text_l)
+    en = sum(1 for m in en_markers if m in text_l)
+    return "es" if es >= en else "en"
+
+
+def _ensure_typst() -> bool:
+    return shutil.which("typst") is not None
+
+
+def _basic_typst_from_master(cv: dict[str, Any], template: str) -> str:
+    """Fallback sin LLM: rellena la plantilla con datos brutos."""
+    p = cv.get("personal", {})
+    summary = cv.get("summary", "")
+    skills = cv.get("skills", {})
+    exp = cv.get("experience", [])
+    proj = cv.get("projects", [])
+    edu = cv.get("education", [])
+
+    exp_block = "\n".join(
+        f"=== {e.get('role', '')} -- {e.get('company', '')} ({e.get('start', '')}--{e.get('end') or 'present'})\n"
+        + "\n".join(f"- {h}" for h in e.get("highlights", []))
+        for e in exp
+    )
+    proj_block = "\n".join(
+        f"=== {pr.get('name', '')} -- {', '.join(pr.get('stack', []))}\n{pr.get('description', '')}"
+        for pr in proj[:5]
+    )
+    skills_block = "\n".join(f"- *{k}*: {', '.join(v)}" for k, v in skills.items() if isinstance(v, list))
+    edu_block = "\n".join(
+        f"- *{e.get('degree', '')}* -- {e.get('school', '')} ({e.get('year', '')})" for e in edu
+    )
+
+    out = template
+    replacements = {
+        "{{NAME}}": p.get("name", ""),
+        "{{TITLE}}": p.get("title", ""),
+        "{{EMAIL}}": p.get("email", ""),
+        "{{PHONE}}": p.get("phone", ""),
+        "{{LOCATION}}": p.get("location", ""),
+        "{{GITHUB}}": p.get("github", ""),
+        "{{LINKEDIN}}": p.get("linkedin", ""),
+        "{{PORTFOLIO}}": p.get("portfolio", ""),
+        "{{SUMMARY}}": summary,
+        "{{EXPERIENCE}}": exp_block,
+        "{{PROJECTS}}": proj_block,
+        "{{SKILLS}}": skills_block,
+        "{{EDUCATION}}": edu_block,
+    }
+    for k, v in replacements.items():
+        out = out.replace(k, v)
+    return out
+
+
+def _build_user_prompt(cv_master: dict[str, Any], template: str, job: dict[str, Any], lang: str) -> str:
+    return (
+        "cv_master:\n" + json.dumps(cv_master, ensure_ascii=False)
+        + "\n\ncv_template:\n" + template
+        + f"\n\nOferta (idioma={lang}):\n"
+        + json.dumps(
+            {
+                "title": job.get("title"),
+                "company": job.get("company"),
+                "description": (job.get("description") or "")[:5000],
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def generate_cv(
+    cv_master: dict[str, Any],
+    job: dict[str, Any],
+    out_dir: Path,
+    language: str | None = None,
+) -> tuple[Path, str, str]:
+    """Genera CV personalizado para la oferta.
+
+    Returns:
+        (pdf_path, typst_source, language)
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    template_path = settings.cv_template_file
+    template = template_path.read_text(encoding="utf-8") if template_path.exists() else ""
+
+    lang = language or _detect_language(job.get("description", "") or job.get("title", ""))
+
+    typst_source: str
+    router = get_router()
+    has_provider = bool(router.available_providers("generation"))
+
+    if not has_provider or not template:
+        typst_source = _basic_typst_from_master(cv_master, template or _MINIMAL_TEMPLATE)
+    else:
+        try:
+            user_prompt = _build_user_prompt(cv_master, template, job, lang)
+            response = run_sync(
+                router.complete_for(
+                    tier="generation",
+                    system=CV_SYSTEM,
+                    user=user_prompt,
+                    max_tokens=4000,
+                    temperature=0.3,
+                )
+            )
+            typst_source = response.content.strip()
+            if typst_source.startswith("```"):
+                typst_source = typst_source.strip("`")
+                if typst_source.lower().startswith("typst"):
+                    typst_source = typst_source[5:].lstrip("\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("CV gen via router fallido, usando basico: %s", exc)
+            typst_source = _basic_typst_from_master(cv_master, template or _MINIMAL_TEMPLATE)
+
+    typst_file = out_dir / "cv.typ"
+    typst_file.write_text(typst_source, encoding="utf-8")
+    pdf_file = out_dir / "cv.pdf"
+
+    if _ensure_typst():
+        try:
+            subprocess.run(
+                ["typst", "compile", str(typst_file), str(pdf_file)],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as exc:
+            logger.error("Typst compile failed: %s", exc.stderr.decode(errors="ignore"))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Typst compile error: %s", exc)
+    else:
+        logger.warning("typst binary not in PATH; PDF no generado. brew install typst")
+
+    return pdf_file, typst_source, lang
+
+
+_MINIMAL_TEMPLATE = r"""
+#set page(margin: 1.5cm, paper: "a4")
+#set text(font: "Inter", size: 10pt)
+
+#align(center)[
+  #text(size: 18pt, weight: "bold")[{{NAME}}] \\
+  #text(size: 11pt)[{{TITLE}}] \\
+  {{EMAIL}} -- {{PHONE}} -- {{LOCATION}} \\
+  #link("{{GITHUB}}") -- #link("{{LINKEDIN}}") -- #link("{{PORTFOLIO}}")
+]
+
+== Summary
+{{SUMMARY}}
+
+== Experience
+{{EXPERIENCE}}
+
+== Projects
+{{PROJECTS}}
+
+== Skills
+{{SKILLS}}
+
+== Education
+{{EDUCATION}}
+"""

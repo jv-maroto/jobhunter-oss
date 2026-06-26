@@ -1,0 +1,26 @@
+# Render.com declarative config — JobHunter backend
+# Free tier: 750 hours/month, 0.1 CPU, 512MB RAM, ephemeral disk
+# NOTE: SQLite data is NOT persistent across redeploys on free tier.
+#       For persistence, upgrade to paid tier and add a /data disk mount.
+
+services:
+  - type: web
+    name: jobhunter-backend
+    runtime: docker
+    region: frankfurt  # closest to Tenerife in free tier
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true   # redeploy on git push to main
+    envVars:
+      - key: LOG_LEVEL
+        value: info
+      - key: ENABLE_SCHEDULER
+        value: "false"
+      - key: ANTHROPIC_API_KEY
+        sync: false   # must be set manually in Render dashboard (secret)
+      - key: DATABASE_URL
+        value: sqlite:///./jobhunter.db
+      - key: DATA_PATH
+        value: /opt/render/project/src/data

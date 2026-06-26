@@ -1,0 +1,54 @@
+{
+  "_README": "Replace this template with your own CV data. Edit through the dashboard Settings page or directly here. Restart backend after manual edits.",
+  "personal": {
+    "name": "Your Full Name",
+    "title": "Your Professional Title",
+    "email": "you@example.com",
+    "phone": "+34 600 000 000",
+    "location": "City, Country",
+    "location_short": "City, Country",
+    "github": "https://github.com/your-handle",
+    "linkedin": "https://linkedin.com/in/your-handle",
+    "portfolio": "https://your-handle.github.io/portfolio",
+    "availability": "Remote worldwide · Open to relocation"
+  },
+  "summary_es": "Resumen profesional en español, 2-3 frases destacando tu stack y experiencia.",
+  "summary_en": "Professional summary in English, 2-3 sentences highlighting your stack and experience.",
+  "languages": [
+    {"name": "Spanish", "level": "Native"},
+    {"name": "English", "level": "B2"}
+  ],
+  "experience": [
+    {
+      "role": "Your current role",
+      "company": "Your current company",
+      "start": "YYYY-MM",
+      "end": "Present",
+      "highlights": [
+        "Specific measurable achievement #1",
+        "Specific measurable achievement #2"
+      ]
+    }
+  ],
+  "education": [
+    {"degree": "Your degree", "institution": "Your institution", "year": "YYYY"}
+  ],
+  "certifications": [
+    {"name": "Certification name", "issuer": "Issuer", "year": "YYYY"}
+  ],
+  "skills": {
+    "backend": ["Python", "FastAPI", "Django"],
+    "frontend": ["React", "TypeScript", "Tailwind"],
+    "databases": ["PostgreSQL", "Redis"],
+    "devops": ["Docker", "Linux"],
+    "ai": ["Anthropic SDK", "Ollama"]
+  },
+  "search_preferences": {
+    "salary_min_eur": 30000,
+    "salary_max_eur": 50000,
+    "remote_only": false,
+    "preferred_countries": ["ES", "EU", "Remote"],
+    "exclude_keywords": []
+  },
+  "projects_highlight": []
+}

@@ -1,0 +1,139 @@
+{
+  "manifest_version": 3,
+  "name": "JobHunter Assistant",
+  "version": "0.2.0",
+  "description": "Companion to your JobHunter dashboard: LinkedIn helper + universal application form auto-filler.",
+  "permissions": ["storage", "scripting", "activeTab", "tabs", "alarms"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://wellfound.com/*",
+    "https://*.lever.co/*",
+    "https://*.greenhouse.io/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.workable.com/*",
+    "https://www.welcometothejungle.com/*",
+    "https://otta.com/*",
+    "https://*.teamtailor.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.recruitee.com/*",
+    "https://*.jazz.co/*",
+    "https://*.jazzhr.com/*",
+    "https://*.personio.com/*",
+    "https://*.personio.de/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.icims.com/*",
+    "https://*.bamboohr.com/*",
+    "https://*.breezy.hr/*",
+    "https://*.factorialhr.com/*",
+    "https://*.pinpointhq.com/*",
+    "https://*.hire.lever.co/*",
+    "https://hire.lever.co/*",
+    "https://*.indeed.com/*",
+    "https://www.indeed.com/*",
+    "https://employers.indeed.com/*",
+    "https://smartapply.indeed.com/*",
+    "https://*.talentclue.com/*",
+    "https://talentclue.com/*",
+    "http://localhost:8000/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:8000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*", "https://*.linkedin.com/in/*"],
+      "js": ["content/linkedin-profile.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://*.linkedin.com/*"
+      ],
+      "exclude_matches": [
+        "https://www.linkedin.com/in/*",
+        "https://www.linkedin.com/messaging/*"
+      ],
+      "js": ["content/linkedin-feed.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/messaging/*", "https://*.linkedin.com/messaging/*"],
+      "js": ["content/linkedin-messaging.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/*", "https://*.linkedin.com/*"],
+      "js": ["content/linkedin-post-helper.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://wellfound.com/*",
+        "https://*.wellfound.com/*",
+        "https://angel.co/*",
+        "https://*.angel.co/*",
+        "https://*.lever.co/*",
+        "https://hire.lever.co/*",
+        "https://*.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://*.ashbyhq.com/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.workable.com/*",
+        "https://apply.workable.com/*",
+        "https://www.welcometothejungle.com/*",
+        "https://*.welcometothejungle.com/*",
+        "https://otta.com/*",
+        "https://*.otta.com/*",
+        "https://app.otta.com/*",
+        "https://*.teamtailor.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://jobs.smartrecruiters.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.jazz.co/*",
+        "https://*.jazzhr.com/*",
+        "https://*.personio.com/*",
+        "https://*.personio.de/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.icims.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.factorialhr.com/*",
+        "https://*.pinpointhq.com/*",
+        "https://*.indeed.com/*",
+        "https://www.indeed.com/*",
+        "https://employers.indeed.com/*",
+        "https://smartapply.indeed.com/*",
+        "https://*.talentclue.com/*",
+        "https://talentclue.com/*"
+      ],
+      "js": ["content/application-autofill.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}

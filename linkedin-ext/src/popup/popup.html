@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>JobHunter</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="popup-header">
+      <div class="brand">
+        <div class="brand-badge">JH</div>
+        <div>
+          <h1>JobHunter</h1>
+          <p class="brand-sub">LinkedIn Assistant</p>
+        </div>
+      </div>
+      <span id="status-dot" class="status-dot" title="Estado del backend"></span>
+    </header>
+
+    <section class="status-block">
+      <p id="status-text">Comprobando conexión...</p>
+      <p id="backend-url" class="muted"></p>
+    </section>
+
+    <section class="summary">
+      <div class="summary-card">
+        <span class="summary-num" id="num-connect">--</span>
+        <span class="summary-label">Conexiones pendientes</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-num" id="num-posts">--</span>
+        <span class="summary-label">Posts programados</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-num" id="num-msgs">--</span>
+        <span class="summary-label">Mensajes a revisar</span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <label class="toggle">
+        <input type="checkbox" id="auto-toggle" />
+        <span>Auto-ejecutar</span>
+      </label>
+      <button id="dashboard-btn" class="btn primary">Abrir dashboard</button>
+      <button id="scan-btn" class="btn primary">Capturar posts de esta página</button>
+      <button id="poll-btn" class="btn ghost">Forzar sincronización</button>
+      <button id="options-btn" class="btn ghost">Opciones</button>
+    </section>
+
+    <section id="diagnostics" class="diagnostics">
+      <p id="diag-output" class="diag-text">Pulsa "Capturar" estando en linkedin.com/feed/</p>
+    </section>
+
+    <footer class="popup-footer">
+      <span>v0.2.0</span>
+      <span id="last-poll">--</span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
