@@ -36,6 +36,24 @@ async def _job_scrape() -> None:
         db.close()
 
 
+async def _job_gmail_sync() -> None:
+    """Sincroniza Gmail si esta habilitado y conectado (Pilar 4)."""
+    from app.integrations.gmail.clients import get_client
+    from app.integrations.gmail.sync import run_sync
+
+    if get_client() is None:
+        return
+    logger.info("scheduler: running gmail sync")
+    db = SessionLocal()
+    try:
+        result = await asyncio.to_thread(run_sync, db)
+        logger.info("scheduler: gmail sync %s", result)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("gmail sync failed: %s", exc)
+    finally:
+        db.close()
+
+
 def _dummy_persons() -> list[dict[str, str]]:
     """Datos placeholder hasta tener scraping LinkedIn real."""
     return [
@@ -154,6 +172,15 @@ def start_scheduler() -> AsyncIOScheduler | None:
         id="posts_weekly",
         replace_existing=True,
     )
+
+    if settings.enable_gmail_tracking:
+        sched.add_job(
+            _job_gmail_sync,
+            IntervalTrigger(minutes=settings.gmail_sync_interval_minutes),
+            id="gmail_sync",
+            replace_existing=True,
+            next_run_time=datetime.now() + timedelta(seconds=60),
+        )
 
     sched.start()
     _scheduler = sched

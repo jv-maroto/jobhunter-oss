@@ -14,6 +14,7 @@ import {
   FileText,
   ListChecks,
   Globe,
+  Mail,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ const NAV: NavItem[] = [
     badge: (c) => (c.persons > 0 ? c.persons : undefined),
   },
   { href: "/settings/search", label: "Búsqueda", icon: Globe },
+  { href: "/settings/integrations", label: "Correo", icon: Mail },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

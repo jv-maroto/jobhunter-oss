@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     comments,
     ext,
+    integrations,
     jobs,
     metrics,
     onboarding,
@@ -86,6 +87,7 @@ app.include_router(comments.router)
 app.include_router(settings_api.router)
 app.include_router(onboarding.router)
 app.include_router(search_profile.router)
+app.include_router(integrations.router)
 
 
 @app.get("/")
