@@ -1,17 +1,23 @@
 """Modelos SQLAlchemy."""
 
+from app.models.answer_cache import AnswerCache
 from app.models.api_call import ApiCall
 from app.models.application import Application
+from app.models.apply_queue import ApplyQueueItem
 from app.models.company import Company
+from app.models.email_event import EmailEvent
 from app.models.feed_post import FeedPost
 from app.models.job import Job, ScoreCache
 from app.models.person import Person
 from app.models.post import Post
 
 __all__ = [
+    "AnswerCache",
     "ApiCall",
     "Application",
+    "ApplyQueueItem",
     "Company",
+    "EmailEvent",
     "FeedPost",
     "Job",
     "Person",

@@ -1,0 +1,199 @@
+"""Registry / factory de scrapers dirigido por las preferencias del usuario.
+
+Punto UNICO de inyeccion del scraping (lo consume `services.run_all_scrapers`).
+Combina el catalogo estatico (`platforms.json`) con las preferencias del
+usuario (`cv_master.json::search_preferences`) para construir las instancias de
+scraper ya configuradas.
+
+RETROCOMPATIBLE: si las preferencias no traen configuracion dinamica explicita
+(`regions`/`region_preset`/`platforms`/`queries`) — el caso del template recien
+clonado — se devuelve EXACTAMENTE el conjunto legacy `ALL_SCRAPERS`, de modo que
+una instalacion sin configurar se comporta igual que antes de este refactor.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from functools import lru_cache
+
+from app.config import settings
+from app.scrapers.base import BaseScraper
+from app.scrapers.country_map import EU_COUNTRIES, jobspy_params_for, resolve_regions
+from app.scrapers.jobspy_scraper import JobspyPlan, JobspyScraper
+from app.scrapers.query_builder import build_search_queries
+from app.scrapers.remotive import RemotiveScraper
+from app.scrapers.tecnoempleo import TecnoempleoScraper
+
+logger = logging.getLogger(__name__)
+
+# Scrapers propios ya implementados, indexados por el `scraper_class` del catalogo.
+# Los boards marcados como "pendiente Pilar 2" (scraper_class=null) se ignoran aqui.
+SCRAPER_BY_ID: dict[str, type[BaseScraper]] = {
+    "RemotiveScraper": RemotiveScraper,
+    "TecnoempleoScraper": TecnoempleoScraper,
+}
+
+_DYNAMIC_KEYS = ("regions", "region_preset", "platforms", "queries")
+
+
+@lru_cache(maxsize=1)
+def load_catalog() -> list[dict]:
+    """Carga platforms.json (cacheado). Devuelve la lista de plataformas."""
+    path = settings.platforms_catalog_file
+    if not path.exists():
+        logger.warning("platforms.json no encontrado en %s", path)
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data.get("platforms", [])
+
+
+def _has_dynamic_config(prefs: dict) -> bool:
+    for k in _DYNAMIC_KEYS:
+        v = prefs.get(k)
+        if v:  # lista/dict no vacios o string no vacio
+            return True
+    return False
+
+
+def _covers(platform_countries: list[str], regions: list[str]) -> bool:
+    pc = set(platform_countries)
+    rg = set(regions)
+    if "REMOTE" in pc and "REMOTE" in rg:
+        return True
+    if "EU" in pc and any(r in EU_COUNTRIES for r in rg):
+        return True
+    return bool(pc & rg)
+
+
+def _enabled(platform: dict, prefs: dict) -> bool:
+    pid = platform["id"]
+    plat_prefs = prefs.get("platforms") or {}
+    if pid in plat_prefs:
+        if not bool(plat_prefs[pid]):
+            return False
+    elif not platform.get("enabled_by_default"):
+        return False
+    # Autodesactivar si requiere una clave de entorno que no esta configurada.
+    req = platform.get("requires_env")
+    if req and not getattr(settings, req, ""):
+        return False
+    return True
+
+
+def suggest_platforms(regions: list[str]) -> list[dict]:
+    """Plataformas del catalogo que cubren las regiones dadas (para la UI)."""
+    return [p for p in load_catalog() if _covers(p.get("countries", []), regions)]
+
+
+def active_platforms(prefs: dict, regions: list[str]) -> list[dict]:
+    """Plataformas activas = cubren region AND habilitadas AND con env disponible."""
+    return [
+        p
+        for p in load_catalog()
+        if _covers(p.get("countries", []), regions) and _enabled(p, prefs)
+    ]
+
+
+def build_jobspy_plans(
+    regions: list[str], queries: list[str], sites: list[str], prefs: dict
+) -> list[JobspyPlan]:
+    results = int(prefs.get("results_per_query", 20) or 20)
+    hours = int(prefs.get("hours_old", 72) or 72)
+    plans: list[JobspyPlan] = []
+    seen: set[tuple] = set()
+    remote = False
+
+    for r in regions:
+        if r == "REMOTE":
+            remote = True
+            continue
+        params = jobspy_params_for(r)
+        if not params:
+            continue
+        key = (params["location"], params["country_indeed"])
+        if key in seen:
+            continue
+        seen.add(key)
+        plans.append(
+            JobspyPlan(
+                sites=sites,
+                queries=queries,
+                location=params["location"],
+                country_indeed=params["country_indeed"],
+                results_wanted=results,
+                hours_old=hours,
+            )
+        )
+
+    # Solo remoto (sin pais concreto): glassdoor exige pais, lo excluimos.
+    if remote and not plans:
+        rsites = [s for s in sites if s != "glassdoor"]
+        if rsites:
+            plans.append(
+                JobspyPlan(
+                    sites=rsites,
+                    queries=queries,
+                    location="",
+                    country_indeed=None,
+                    results_wanted=results,
+                    hours_old=hours,
+                )
+            )
+    return plans
+
+
+def build_active_scrapers(cv: dict | None, prefs: dict | None) -> list[BaseScraper]:
+    """Construye las instancias de scraper a ejecutar segun las preferencias.
+
+    Devuelve el conjunto legacy si no hay configuracion dinamica (retrocompat).
+    """
+    prefs = prefs or {}
+
+    if not _has_dynamic_config(prefs):
+        from app.scrapers import ALL_SCRAPERS
+
+        return [cls() for cls in ALL_SCRAPERS]
+
+    regions = resolve_regions(prefs)
+    if not regions:
+        from app.scrapers import ALL_SCRAPERS
+
+        return [cls() for cls in ALL_SCRAPERS]
+
+    queries = build_search_queries(cv or {}, prefs)
+    active = active_platforms(prefs, regions)
+    instances: list[BaseScraper] = []
+
+    jobspy_sites = sorted(
+        {
+            p["jobspy_site"]
+            for p in active
+            if p.get("method") == "jobspy" and p.get("jobspy_site")
+        }
+    )
+    if jobspy_sites and queries:
+        plans = build_jobspy_plans(regions, queries, jobspy_sites, prefs)
+        if plans:
+            instances.append(JobspyScraper(plans))
+
+    for p in active:
+        if p.get("method") == "scraper" and p.get("scraper_class"):
+            cls = SCRAPER_BY_ID.get(p["scraper_class"])
+            if cls:
+                instances.append(cls())
+        # method in {api, apply_only, mcp}: se implementan en Pilares 2/3.
+
+    if not instances:
+        logger.info("registry: sin scrapers activos para regiones=%s, usando legacy", regions)
+        from app.scrapers import ALL_SCRAPERS
+
+        return [cls() for cls in ALL_SCRAPERS]
+
+    logger.info(
+        "registry: %d scrapers activos (regiones=%s, plataformas=%s)",
+        len(instances),
+        regions,
+        [p["id"] for p in active],
+    )
+    return instances

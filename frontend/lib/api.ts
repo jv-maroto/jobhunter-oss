@@ -33,6 +33,29 @@ export async function api<T>(
 }
 
 /**
+ * Subida multipart/form-data. NO fija Content-Type a propósito: el navegador
+ * debe poner `multipart/form-data; boundary=...` él mismo. Usar `api()` aquí
+ * rompería la subida porque fuerza `application/json`.
+ */
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  init?: Omit<RequestInit, "body" | "headers">,
+): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    ...init,
+    body: formData,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(`API ${path}: ${res.status}`, res.status);
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/**
  * Hace fetch al backend real; si falla (offline / 5xx), devuelve mock.
  * Pensado para que el dashboard sea navegable sin backend corriendo.
  */

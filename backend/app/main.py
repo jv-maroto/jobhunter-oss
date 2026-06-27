@@ -9,7 +9,16 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import comments, ext, jobs, metrics, persons, posts, settings as settings_api
+from app.api import (
+    comments,
+    ext,
+    jobs,
+    metrics,
+    onboarding,
+    persons,
+    posts,
+    settings as settings_api,
+)
 from app.config import settings
 from app.db import init_db
 from app.scheduler import start_scheduler, stop_scheduler
@@ -74,6 +83,7 @@ app.include_router(metrics.router)
 app.include_router(ext.router)
 app.include_router(comments.router)
 app.include_router(settings_api.router)
+app.include_router(onboarding.router)
 
 
 @app.get("/")

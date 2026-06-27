@@ -17,7 +17,7 @@ from app.models.company import Company
 from app.models.job import Job
 from app.schemas.job import ScrapedJob, ScoredJobResult
 from app.scoring.scorer import score_job
-from app.scrapers import ALL_SCRAPERS
+from app.scrapers.registry import build_active_scrapers
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +131,14 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
 
 
 async def run_all_scrapers() -> list[ScrapedJob]:
-    """Ejecuta todos los scrapers en paralelo y devuelve lista plana deduplicada."""
-    instances = [cls() for cls in ALL_SCRAPERS]
+    """Ejecuta los scrapers activos en paralelo y devuelve lista plana deduplicada.
+
+    Los scrapers activos los decide `build_active_scrapers` a partir del perfil y
+    sus `search_preferences`. Sin configuracion dinamica => conjunto legacy.
+    """
+    cv = load_cv_master()
+    prefs = cv.get("search_preferences", {}) if isinstance(cv, dict) else {}
+    instances = build_active_scrapers(cv, prefs)
     results = await asyncio.gather(*(s.fetch() for s in instances), return_exceptions=True)
 
     all_jobs: list[ScrapedJob] = []

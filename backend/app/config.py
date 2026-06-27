@@ -60,10 +60,42 @@ class Settings(BaseSettings):
     enable_comment_suggestions: bool = Field(default=True)
     enable_trending_news: bool = Field(default=True)
 
+    # ---- Onboarding (Pilar 1) ----
+    onboarding_marker_path: str = Field(default="./data/.onboarded")
+    onboarding_draft_path: str = Field(default="./data/onboarding_draft.json")
+    # PAT opcional: sube el rate-limit de la API publica de GitHub (60->5000/h).
+    github_token: str = Field(default="")
+
+    # ---- Plataformas / search profile (Pilar 2) ----
+    # Claves de APIs de portales (opcionales; el scraper se autodesactiva si faltan).
+    reed_api_key: str = Field(default="")
+    france_travail_client_id: str = Field(default="")
+    france_travail_client_secret: str = Field(default="")
+    bundesagentur_api_key: str = Field(default="")
+
+    # ---- Automatizacion / MCP (Pilar 3) — todo OFF por defecto ----
+    mcp_linkedin_enabled: bool = Field(default=False)
+    mcp_linkedin_args: str = Field(default="linkedin-mcp-server")
+    linkedin_cookie: str = Field(default="")  # li_at; vacio => deshabilitado
+    mcp_linkedin_rate_per_hour: int = Field(default=20)
+    mcp_jobspy_enabled: bool = Field(default=False)
+    apply_playwright_enabled: bool = Field(default=False)
+    apply_playwright_daily_cap: int = Field(default=5)
+    apply_daily_cap: int = Field(default=30)  # tope global de aplicaciones/dia
+
+    # ---- Gmail tracking (Pilar 4) — opcional, solo lectura ----
+    enable_gmail_tracking: bool = Field(default=False)
+    gmail_sync_interval_minutes: int = Field(default=30)
+    gmail_lookback_days: int = Field(default=7)
+    gmail_auto_apply_threshold: float = Field(default=0.8)
+    gmail_match_threshold: float = Field(default=0.6)
+    gmail_scope: str = Field(default="readonly")  # readonly | metadata
+
     # Paths
     data_dir: str = Field(default="./data")
     cv_master_path: str = Field(default="./app/data/cv_master.json")
     cv_template_path: str = Field(default="./app/data/cv_template.typ")
+    platforms_catalog_path: str = Field(default="./app/scrapers/platforms.json")
 
     # CORS
     cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173")
@@ -90,6 +122,25 @@ class Settings(BaseSettings):
     @property
     def cv_template_file(self) -> Path:
         return Path(self.cv_template_path).resolve()
+
+    @property
+    def platforms_catalog_file(self) -> Path:
+        return Path(self.platforms_catalog_path).resolve()
+
+    @property
+    def onboarding_marker_file(self) -> Path:
+        return Path(self.onboarding_marker_path).resolve()
+
+    @property
+    def onboarding_draft_file(self) -> Path:
+        return Path(self.onboarding_draft_path).resolve()
+
+    @property
+    def integrations_path(self) -> Path:
+        """Carpeta local para credenciales de integraciones (Gmail, etc.)."""
+        p = self.data_path / "integrations"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
 
 settings = Settings()

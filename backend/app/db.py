@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -35,16 +38,51 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def ensure_columns(table: str, columns: dict[str, str]) -> None:
+    """Mini-migrador idempotente para SQLite (el proyecto no usa Alembic).
+
+    `Base.metadata.create_all` crea tablas nuevas pero NO anade columnas a una
+    tabla ya existente. Este helper anade, via `ALTER TABLE ... ADD COLUMN`,
+    solo las columnas que falten. Seguro de ejecutar en cada arranque.
+
+    `columns` mapea nombre_de_columna -> definicion SQL (tipo + default), p.ej.
+    {"provider": "VARCHAR(32)", "submitted_at": "DATETIME"}.
+    """
+    insp = inspect(engine)
+    if table not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns(table)}
+    with engine.begin() as conn:
+        for col, ddl in columns.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+                logger.info("migrate: added column %s.%s (%s)", table, col, ddl)
+
+
 def init_db() -> None:
-    """Crea todas las tablas. Se llama en el lifespan."""
+    """Crea todas las tablas y aplica migraciones ligeras. Se llama en el lifespan."""
     # Import aqui para asegurar registro de modelos antes de create_all.
     from app.models import (  # noqa: F401
+        answer_cache,
         api_call,
         application,
+        apply_queue,
         company,
+        email_event,
         job,
         person,
         post,
     )
 
     Base.metadata.create_all(bind=engine)
+
+    # Columnas anadidas despues de la v1 del esquema (instalaciones existentes).
+    ensure_columns(
+        "applications",
+        {
+            "provider": "VARCHAR(32)",
+            "apply_url": "VARCHAR(1024)",
+            "screening_answers": "JSON",
+            "submitted_at": "DATETIME",
+        },
+    )
