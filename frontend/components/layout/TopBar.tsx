@@ -7,6 +7,7 @@ import { useMetricsToday } from "@/hooks/useMetrics";
 import { usePersons } from "@/hooks/usePersons";
 import { ThemeToggle } from "./ThemeToggle";
 import { useBackendStatus } from "@/hooks/useBackendStatus";
+import { useHasPaidApi } from "@/hooks/useAiSettings";
 import { cn, formatEur } from "@/lib/utils";
 
 const TITLES: Record<string, { title: string; sub: string }> = {
@@ -34,13 +35,13 @@ const TITLES: Record<string, { title: string; sub: string }> = {
     title: "Companies",
     sub: "Aggregated employer view",
   },
-  "/linkedin": {
-    title: "LinkedIn",
-    sub: "Posts, connections, comments",
+  "/networking": {
+    title: "Networking",
+    sub: "Sugerencias y contactos",
   },
   "/settings": {
     title: "Settings",
-    sub: "Identity, theme, API keys",
+    sub: "Identity, theme, AI",
   },
 };
 
@@ -55,6 +56,7 @@ export function TopBar() {
   const persons = usePersons("pending");
   const status = useBackendStatus();
   const connected = status.data === true;
+  const hasPaidApi = useHasPaidApi();
 
   const newJobs = data?.today.new_jobs ?? 0;
   const prepared = data?.today.applications_prepared ?? 0;
@@ -69,7 +71,7 @@ export function TopBar() {
             href="/today"
             className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition-colors hidden sm:inline shrink-0"
           >
-            JobHunter
+            JobSlaves
           </Link>
           <ChevronRight className="h-3 w-3 text-muted-foreground hidden sm:block shrink-0" />
           <div className="min-w-0 flex-1">
@@ -91,13 +93,17 @@ export function TopBar() {
           <Metric label="PREPARED" value={prepared} />
           <Sep />
           <Metric label="CONNECT" value={connections} accent={connections > 0} />
-          <Sep />
-          <Metric
-            label="API"
-            value={formatEur(apiToday)}
-            mono
-            accent={apiToday > 1}
-          />
+          {hasPaidApi && (
+            <>
+              <Sep />
+              <Metric
+                label="API"
+                value={formatEur(apiToday)}
+                mono
+                accent={apiToday > 1}
+              />
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

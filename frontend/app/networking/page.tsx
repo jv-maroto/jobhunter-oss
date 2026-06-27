@@ -80,6 +80,20 @@ function SuggestionCard({ s }: { s: NetworkingSuggestion }) {
         </p>
 
         <SkillChips skills={s.skill_match} />
+
+        {s.linkedin_url && (
+          <div className="flex justify-end pt-1">
+            <a
+              href={s.linkedin_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-[hsl(var(--accent-1))] hover:underline"
+            >
+              {s.kind === "person" ? "Ver perfil" : "Ver perfiles reales en LinkedIn"}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -228,7 +242,8 @@ export default function NetworkingPage() {
               </CardTitle>
               <p className="text-[11px] text-muted-foreground">
                 A quién conectar según tus skills y las empresas a las que has
-                aplicado.
+                aplicado. Pulsa «Ver perfiles» para encontrar personas reales en
+                LinkedIn (o conecta la extensión para importarlas a tu cola).
               </p>
             </div>
             <Button

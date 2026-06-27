@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
-import { Save, Key, Palette, FileJson } from "lucide-react";
+import { Save, Bot, Palette, FileJson } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 
 // Shown only if the backend can't load cv_master.json (first-time setup).
@@ -45,7 +45,6 @@ const DEFAULT_CV: Record<string, unknown> = {
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
-  const [apiKey, setApiKey] = React.useState("");
   const [cv, setCv] = React.useState<string>(
     JSON.stringify(DEFAULT_CV, null, 2),
   );
@@ -88,31 +87,18 @@ export default function SettingsPage() {
       <Card variant="glass">
         <CardHeader>
           <CardTitle className="inline-flex items-center gap-2">
-            <Key className="h-4 w-4 text-[hsl(var(--accent-1))]" />
-            API Keys
+            <Bot className="h-4 w-4 text-[hsl(var(--accent-1))]" />
+            IA y claves
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-2">
-            <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              ANTHROPIC_API_KEY
-            </label>
-            <Input
-              type="password"
-              placeholder="sk-ant-… (gestionado por el backend)"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <p className="text-[10px] text-muted-foreground">
-              Solo placeholder visual — la API key real se inyecta al backend vía .env.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Badge variant="success" size="sm">anthropic</Badge>
-            <Badge variant="default" size="sm">gemini</Badge>
-            <Badge variant="secondary" size="sm">ollama</Badge>
-            <Badge variant="outline" size="sm">openai</Badge>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Elige proveedor (Anthropic / OpenAI / Gemini), IA local con Ollama (gratis) o
+            sin IA, y gestiona tus API keys desde la pantalla de IA.
+          </p>
+          <Link href="/settings/ai">
+            <Button variant="outline">Ir a Ajustes de IA →</Button>
+          </Link>
         </CardContent>
       </Card>
 

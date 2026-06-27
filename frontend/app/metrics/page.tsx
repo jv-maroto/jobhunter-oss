@@ -32,13 +32,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCompanies, useMetricsToday, usePipeline } from "@/hooks/useMetrics";
 import { useJobs } from "@/hooks/useJobs";
 import { useApiCosts } from "@/hooks/useApiCosts";
+import { useHasPaidApi } from "@/hooks/useAiSettings";
 import {
   mockAppsBySource,
   mockJobsPerDay,
   mockApiCostsPerDay,
 } from "@/lib/mock";
 import { JOB_STATUSES } from "@/lib/types";
-import { formatEur, formatRelative } from "@/lib/utils";
+import { cn, formatEur, formatRelative } from "@/lib/utils";
 
 export default function MetricsPage() {
   const metrics = useMetricsToday();
@@ -46,6 +47,7 @@ export default function MetricsPage() {
   const companies = useCompanies();
   const jobs = useJobs();
   const apiCosts = useApiCosts();
+  const hasPaidApi = useHasPaidApi();
 
   if (metrics.isLoading || !metrics.data || !pipeline.data) {
     return (
@@ -95,7 +97,12 @@ export default function MetricsPage() {
         <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-3">
           Activity
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div
+          className={cn(
+            "grid grid-cols-2 sm:grid-cols-3 gap-3",
+            hasPaidApi ? "lg:grid-cols-5" : "lg:grid-cols-4",
+          )}
+        >
           <MetricCard
             label="Jobs scraped"
             value={weekScraped}
@@ -124,14 +131,16 @@ export default function MetricsPage() {
             icon={Users}
             spark={[0, 1, 1, 2, 2, 3, 3]}
           />
-          <MetricCard
-            label="API cost"
-            value={formatEur(m.api_cost_eur.month)}
-            hint={`today ${formatEur(m.api_cost_eur.today)}`}
-            icon={CircleDollarSign}
-            spark={[0.1, 0.3, 0.2, 0.5, 0.4, 0.6, 0.42]}
-            positiveIsGood={false}
-          />
+          {hasPaidApi && (
+            <MetricCard
+              label="API cost"
+              value={formatEur(m.api_cost_eur.month)}
+              hint={`today ${formatEur(m.api_cost_eur.today)}`}
+              icon={CircleDollarSign}
+              spark={[0.1, 0.3, 0.2, 0.5, 0.4, 0.6, 0.42]}
+              positiveIsGood={false}
+            />
+          )}
         </div>
       </section>
 
@@ -147,6 +156,7 @@ export default function MetricsPage() {
         </div>
       </section>
 
+      {hasPaidApi && (
       <section>
         <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-3">
           AI Provider Cost
@@ -307,6 +317,7 @@ export default function MetricsPage() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

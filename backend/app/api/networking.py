@@ -55,6 +55,8 @@ _MAX_COMPANIES = 8
 class NetworkingSuggestion(BaseModel):
     """Una sugerencia de a quien conectar."""
 
+    model_config = ConfigDict(extra="ignore")
+
     full_name: str | None = None
     headline: str
     company: str | None = None
@@ -62,6 +64,9 @@ class NetworkingSuggestion(BaseModel):
     priority: int
     kind: str  # "person" | "archetype"
     skill_match: list[str] = []
+    # Enlace para encontrar PERSONAS REALES que encajan con el arquetipo (busqueda
+    # de LinkedIn), o el perfil real si es una Person existente.
+    linkedin_url: str = ""
 
 
 class SuggestionsResponse(BaseModel):
@@ -143,6 +148,21 @@ def _skill_match(text: str, skills: list[str]) -> list[str]:
 def _profile_title(cv: dict[str, Any]) -> str:
     personal = cv.get("personal", {}) if isinstance(cv, dict) else {}
     return str(personal.get("title") or "tu perfil")
+
+
+def _linkedin_url(headline: str, company: str | None, profile_url: str | None) -> str:
+    """Si hay un perfil real de LinkedIn lo usa; si no, una BUSQUEDA de personas en
+    LinkedIn con palabras clave del arquetipo -> el usuario ve perfiles reales."""
+    from urllib.parse import quote
+
+    if profile_url and "linkedin.com/in/" in profile_url:
+        return profile_url
+    # Limpia el headline: quita "(...)", toma el primer rol antes de "/" y "en {empresa}".
+    h = re.sub(r"\(.*?\)", "", headline)
+    h = h.split("/")[0]
+    h = re.sub(r"\s+en\s+.*$", "", h, flags=re.IGNORECASE).strip()
+    keywords = " ".join(p for p in (h, company or "") if p).strip()
+    return "https://www.linkedin.com/search/results/people/?keywords=" + quote(keywords)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +285,7 @@ def _person_suggestions(
                 "priority": min(priority, 99),
                 "kind": "person",
                 "skill_match": match,
+                "profile_url": p.profile_url,
             }
         )
     return items
@@ -397,6 +418,9 @@ def get_suggestions(
             it["reason"] = _heuristic_reason(
                 it["headline"], it.get("company"), it["skill_match"]
             )
+        it["linkedin_url"] = _linkedin_url(
+            it["headline"], it.get("company"), it.get("profile_url")
+        )
 
     return SuggestionsResponse(
         suggestions=[NetworkingSuggestion(**it) for it in items],

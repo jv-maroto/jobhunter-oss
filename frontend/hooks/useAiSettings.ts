@@ -13,6 +13,17 @@ export function useAiSettings() {
   });
 }
 
+/**
+ * True solo si hay una API de pago (cloud) conectada con clave. Con Ollama local
+ * o sin IA es false -> los widgets de coste de API (siempre €0) se ocultan.
+ * Mientras carga devuelve `false` para no parpadear coste a 0.
+ */
+export function useHasPaidApi(): boolean {
+  const { data } = useAiSettings();
+  const hk = data?.has_key;
+  return !!hk && (hk.anthropic || hk.openai || hk.gemini);
+}
+
 export function useUpdateAiSettings() {
   const qc = useQueryClient();
   return useMutation({

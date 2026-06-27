@@ -29,8 +29,9 @@ import { MetricCard } from "@/components/metrics/MetricCard";
 import { useJobs } from "@/hooks/useJobs";
 import { usePersons } from "@/hooks/usePersons";
 import { useMetricsToday } from "@/hooks/useMetrics";
+import { useHasPaidApi } from "@/hooks/useAiSettings";
 import { api } from "@/lib/api";
-import { formatEur } from "@/lib/utils";
+import { cn, formatEur } from "@/lib/utils";
 
 const SOURCES = ["all", "linkedin", "indeed", "remotive", "tecnoempleo"];
 
@@ -44,6 +45,7 @@ export default function TodayPage() {
   });
   const persons = usePersons("pending");
   const metrics = useMetricsToday();
+  const hasPaidApi = useHasPaidApi();
 
   const detected = (jobs.data ?? []).filter((j) => j.status === "detected");
   const fresh = detected.slice().sort(
@@ -98,7 +100,10 @@ export default function TodayPage() {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        className={cn(
+          "grid grid-cols-2 gap-3",
+          hasPaidApi ? "lg:grid-cols-4" : "lg:grid-cols-3",
+        )}
       >
         <MetricCard
           label="New jobs"
@@ -125,15 +130,17 @@ export default function TodayPage() {
           icon={Users}
           spark={[2, 3, 4, 3, 5, 4, 6]}
         />
-        <MetricCard
-          label="API today"
-          value={formatEur(m?.api_cost_eur.today ?? 0)}
-          hint={`month ${formatEur(m?.api_cost_eur.month ?? 0)}`}
-          icon={CircleDollarSign}
-          delta={-8.4}
-          positiveIsGood={false}
-          spark={[0.2, 0.4, 0.3, 0.5, 0.6, 0.4, 0.42]}
-        />
+        {hasPaidApi && (
+          <MetricCard
+            label="API today"
+            value={formatEur(m?.api_cost_eur.today ?? 0)}
+            hint={`month ${formatEur(m?.api_cost_eur.month ?? 0)}`}
+            icon={CircleDollarSign}
+            delta={-8.4}
+            positiveIsGood={false}
+            spark={[0.2, 0.4, 0.3, 0.5, 0.6, 0.4, 0.42]}
+          />
+        )}
       </motion.div>
 
       {/* Bento grid: left = jobs (3 cols), right = outreach stack (2 cols) */}

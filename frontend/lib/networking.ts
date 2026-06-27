@@ -10,6 +10,7 @@ export interface NetworkingSuggestion {
   priority: number;
   kind: "person" | "archetype";
   skill_match: string[];
+  linkedin_url: string;
 }
 
 export interface SuggestionsResponse {
