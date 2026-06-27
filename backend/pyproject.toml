@@ -38,6 +38,10 @@ gmail = [
     "google-api-python-client>=2.140",
     "google-auth-oauthlib>=1.2",
 ]
+# Automatizacion de aplicar (Pilar 3): cliente MCP de descubrimiento (opcional, OFF).
+mcp = [
+    "mcp>=1.0",
+]
 dev = [
     "ruff>=0.7",
     "pytest>=8.3",

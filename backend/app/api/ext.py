@@ -10,6 +10,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.apply_queue import ApplyQueueItem
+from app.models.job import Job
 from app.models.person import Person
 from app.models.post import Post
 
@@ -234,3 +236,74 @@ def inbox_messages(payload: list[InboxMessageIn], db: Session = Depends(get_db))
     return {"received": len(payload), "matched": matched}
 
 
+
+
+# ---------------- Aplicar (Pilar 3): cola + reporte + screening ----------------
+
+
+@router.get("/apply-queue")
+def apply_queue(limit: int = 5, db: Session = Depends(get_db)) -> dict:
+    """Ofertas en cola para que la extension rellene/aplique (status=queued)."""
+    items = db.execute(
+        select(ApplyQueueItem)
+        .where(ApplyQueueItem.status == "queued")
+        .order_by(ApplyQueueItem.created_at)
+        .limit(limit)
+    ).scalars().all()
+    out = []
+    for it in items:
+        job = db.get(Job, it.job_id)
+        out.append({
+            "queue_id": it.id,
+            "job_id": it.job_id,
+            "platform": it.platform,
+            "apply_url": it.apply_url,
+            "materials": it.materials or {},
+            "title": job.title if job else "",
+            "company": job.company if job else "",
+        })
+    return {"tasks": out}
+
+
+class AppliedIn(BaseModel):
+    job_id: int
+    platform: str = ""
+    apply_url: str = ""
+    status: str = "submitted"
+    queue_id: int | None = None
+    screening_answers: dict | None = None
+
+
+@router.post("/applied")
+def report_applied(payload: AppliedIn, db: Session = Depends(get_db)) -> dict:
+    """La extension reporta que una oferta se envio -> avanza el pipeline a 'applied'."""
+    from app.apply.orchestrator import record_applied
+
+    job = db.get(Job, payload.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    app_row = record_applied(
+        db, job,
+        platform=payload.platform,
+        apply_url=payload.apply_url,
+        screening_answers=payload.screening_answers,
+        queue_id=payload.queue_id,
+    )
+    return {"ok": True, "job_id": job.id, "job_status": job.status, "application_id": app_row.id}
+
+
+class AnswerQuestionIn(BaseModel):
+    job_id: int
+    question: str
+    options: list[str] | None = None
+
+
+@router.post("/answer-question")
+def answer_question_ep(payload: AnswerQuestionIn, db: Session = Depends(get_db)) -> dict:
+    """Sugiere (en borrador) una respuesta a una pregunta de screening del formulario."""
+    from app.apply.screening import answer_question
+
+    job = db.get(Job, payload.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return answer_question(db, job, payload.question, payload.options)

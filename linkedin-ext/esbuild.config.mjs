@@ -11,6 +11,7 @@ const entries = [
   'src/content/linkedin-messaging.ts',
   'src/content/linkedin-post-helper.ts',
   'src/content/application-autofill.ts',
+  'src/content/application-reporter.ts',
   'src/popup/popup.ts',
   'src/options/options.ts'
 ];

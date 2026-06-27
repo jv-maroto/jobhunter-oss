@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    apply,
     comments,
     ext,
     integrations,
@@ -88,6 +89,7 @@ app.include_router(settings_api.router)
 app.include_router(onboarding.router)
 app.include_router(search_profile.router)
 app.include_router(integrations.router)
+app.include_router(apply.router)
 
 
 @app.get("/")

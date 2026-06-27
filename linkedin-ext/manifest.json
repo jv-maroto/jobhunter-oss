@@ -116,7 +116,7 @@
         "https://*.talentclue.com/*",
         "https://talentclue.com/*"
       ],
-      "js": ["content/application-autofill.js"],
+      "js": ["content/application-autofill.js", "content/application-reporter.js"],
       "css": ["content/overlay.css"],
       "run_at": "document_idle",
       "all_frames": true

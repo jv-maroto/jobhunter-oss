@@ -31,6 +31,25 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface ApplyQueueTask {
+  queue_id: number;
+  job_id: number;
+  platform: string;
+  apply_url: string;
+  materials: { cv_path?: string; cover_letter_path?: string; language?: string };
+  title: string;
+  company: string;
+}
+
+export interface AppliedReport {
+  job_id: number;
+  platform?: string;
+  apply_url?: string;
+  status?: string;
+  queue_id?: number;
+  screening_answers?: Record<string, string>;
+}
+
 export const api = {
   async health(): Promise<boolean> {
     try {
@@ -75,6 +94,29 @@ export const api = {
     return jsonFetch<void>("/ext/post-result", {
       method: "POST",
       body: JSON.stringify(result)
+    });
+  },
+
+  // --- Aplicar (Pilar 3) ---
+  getApplyQueue(): Promise<{ tasks: ApplyQueueTask[] }> {
+    return jsonFetch<{ tasks: ApplyQueueTask[] }>("/ext/apply-queue");
+  },
+
+  reportApplied(report: AppliedReport): Promise<{ ok: boolean; job_status: string }> {
+    return jsonFetch<{ ok: boolean; job_status: string }>("/ext/applied", {
+      method: "POST",
+      body: JSON.stringify(report)
+    });
+  },
+
+  answerQuestion(payload: {
+    job_id: number;
+    question: string;
+    options?: string[];
+  }): Promise<{ answer: string; cached: boolean }> {
+    return jsonFetch<{ answer: string; cached: boolean }>("/ext/answer-question", {
+      method: "POST",
+      body: JSON.stringify(payload)
     });
   }
 };
