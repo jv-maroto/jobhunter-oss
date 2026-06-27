@@ -18,9 +18,16 @@ import {
   type MergeResult,
   type RoleSuggestion,
 } from "@/lib/onboarding";
+import {
+  AI_PROVIDERS,
+  aiSettingsApi,
+  type AiMode,
+  type AiProvider,
+  type AiSettingsPatch,
+} from "@/lib/aiSettings";
 
-type Step = "welcome" | "github" | "linkedin" | "cv" | "regions" | "roles" | "review" | "done";
-const ORDER: Step[] = ["welcome", "github", "linkedin", "cv", "regions", "roles", "review", "done"];
+type Step = "welcome" | "ai" | "github" | "linkedin" | "cv" | "regions" | "roles" | "review" | "done";
+const ORDER: Step[] = ["welcome", "ai", "github", "linkedin", "cv", "regions", "roles", "review", "done"];
 
 const PRESET_T: Record<string, string> = {
   only_spain: "rg_preset_es",
@@ -64,6 +71,13 @@ export default function OnboardingPage() {
   const [liText, setLiText] = React.useState("");
   const [regionPreset, setRegionPreset] = React.useState<string | null>("only_spain");
   const [customRegions, setCustomRegions] = React.useState<string[]>([]);
+
+  // Paso IA: elegir local (Ollama) / cloud (con clave) / sin IA.
+  const [aiMode, setAiMode] = React.useState<AiMode>("local");
+  const [aiProvider, setAiProvider] = React.useState<AiProvider>("anthropic");
+  const [aiKey, setAiKey] = React.useState("");
+  const [aiLocalOk, setAiLocalOk] = React.useState(true);
+  const [aiSeeded, setAiSeeded] = React.useState(false);
 
   // Paso ROLES: sugerencias de IA + selección multi-chip + roles propios.
   const [roleSuggestions, setRoleSuggestions] = React.useState<RoleSuggestion[] | null>(null);
@@ -180,6 +194,44 @@ export default function OnboardingPage() {
     setCustomRole("");
   }
 
+  // Carga/siembra el estado de IA al entrar en el paso (una sola vez).
+  const loadAi = React.useCallback(async () => {
+    try {
+      const s = await aiSettingsApi.get();
+      setAiLocalOk(s.local_available);
+      setAiProvider(s.ai_cloud_provider);
+      if (s.has_key.anthropic || s.has_key.openai || s.has_key.gemini) setAiMode("cloud");
+      else if (s.local_available) setAiMode("local");
+      else setAiMode("off");
+    } catch {
+      /* backend offline: dejamos los defaults */
+    } finally {
+      setAiSeeded(true);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (step === "ai" && !aiSeeded) void loadAi();
+  }, [step, aiSeeded, loadAi]);
+
+  async function saveAi() {
+    setBusy("ai");
+    try {
+      const patch: AiSettingsPatch = { ai_mode: aiMode };
+      if (aiMode === "cloud") {
+        patch.ai_cloud_provider = aiProvider;
+        if (aiKey.trim()) patch.keys = { [aiProvider]: aiKey.trim() };
+      }
+      await aiSettingsApi.update(patch);
+      toast.success(t("t_ai_saved"));
+      next();
+    } catch {
+      toast.error(t("t_ai_err"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function patchPersonal(key: string, value: string) {
     setCv((c) => (c ? { ...c, personal: { ...(c.personal ?? {}), [key]: value } } : c));
   }
@@ -233,7 +285,62 @@ export default function OnboardingPage() {
         </div>
 
         {step === "welcome" && (
-          <WelcomeStep onStart={() => goTo("github")} onManual={() => goTo("regions")} />
+          <WelcomeStep onStart={() => goTo("ai")} onManual={() => goTo("ai")} />
+        )}
+
+        {step === "ai" && (
+          <StepCard
+            title={t("ai_title")}
+            description={t("ai_desc")}
+            onBack={back}
+            onNext={saveAi}
+            nextLabel={busy === "ai" ? t("saving") : t("ai_continue")}
+          >
+            <div className="flex flex-col gap-2">
+              <AiModeOption
+                active={aiMode === "local"}
+                disabled={!aiLocalOk}
+                title={t("ai_local")}
+                desc={aiLocalOk ? t("ai_local_desc") : t("ai_local_unavailable")}
+                onClick={() => aiLocalOk && setAiMode("local")}
+              />
+              <AiModeOption
+                active={aiMode === "cloud"}
+                title={t("ai_cloud")}
+                desc={t("ai_cloud_desc")}
+                onClick={() => setAiMode("cloud")}
+              />
+              <AiModeOption
+                active={aiMode === "off"}
+                title={t("ai_off")}
+                desc={t("ai_off_desc")}
+                onClick={() => setAiMode("off")}
+              />
+            </div>
+            {aiMode === "cloud" && (
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {AI_PROVIDERS.map((p) => (
+                    <Chip
+                      key={p.id}
+                      active={aiProvider === p.id}
+                      onClick={() => setAiProvider(p.id)}
+                    >
+                      {p.label}
+                    </Chip>
+                  ))}
+                </div>
+                <Input
+                  type="password"
+                  placeholder={
+                    AI_PROVIDERS.find((p) => p.id === aiProvider)?.keyPlaceholder ?? "API key"
+                  }
+                  value={aiKey}
+                  onChange={(e) => setAiKey(e.target.value)}
+                />
+              </div>
+            )}
+          </StepCard>
         )}
 
         {step === "github" && (
@@ -787,5 +894,36 @@ function Stat({ n, label }: { n: number; label: string }) {
       <div className="text-lg font-semibold text-foreground">{n}</div>
       <div className="text-[10px] text-muted-foreground">{label}</div>
     </div>
+  );
+}
+
+function AiModeOption({
+  active,
+  disabled,
+  title,
+  desc,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  title: string;
+  desc: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        active
+          ? "border-[hsl(var(--accent-1))]/55 bg-[hsl(var(--accent-1))]/10"
+          : "border-[hsl(var(--border))] hover:border-[hsl(var(--accent-1))]/40",
+      )}
+    >
+      <div className="text-sm font-medium">{title}</div>
+      <div className="text-[11px] text-muted-foreground">{desc}</div>
+    </button>
   );
 }

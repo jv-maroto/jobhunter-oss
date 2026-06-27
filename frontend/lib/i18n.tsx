@@ -14,8 +14,37 @@ const DICT: Record<string, Entry> = {
   step_cv: { es: "CV", en: "CV" },
   step_regions: { es: "Países", en: "Countries" },
   step_roles: { es: "Roles", en: "Roles" },
+  step_ai: { es: "IA", en: "AI" },
   step_review: { es: "Revisión", en: "Review" },
   step_done: { es: "Listo", en: "Done" },
+  // paso IA
+  ai_title: { es: "¿Qué IA quieres usar?", en: "Which AI do you want to use?" },
+  ai_desc: {
+    es: "La IA analiza tu CV, puntúa ofertas y redacta materiales. Elige una; puedes cambiarla luego en Ajustes.",
+    en: "AI analyzes your CV, scores jobs and drafts materials. Pick one; you can change it later in Settings.",
+  },
+  ai_local: { es: "Local · Ollama (gratis)", en: "Local · Ollama (free)" },
+  ai_local_desc: {
+    es: "Corre en tu máquina, sin coste ni clave. Recomendado.",
+    en: "Runs on your machine, no cost or key. Recommended.",
+  },
+  ai_local_unavailable: {
+    es: "Ollama no detectado (localhost:11434). Instálalo o elige otra opción.",
+    en: "Ollama not detected (localhost:11434). Install it or pick another option.",
+  },
+  ai_cloud: { es: "Cloud · con tu API key", en: "Cloud · with your API key" },
+  ai_cloud_desc: {
+    es: "Anthropic / OpenAI / Gemini. Mejor calidad; de pago según tu uso.",
+    en: "Anthropic / OpenAI / Gemini. Higher quality; paid per usage.",
+  },
+  ai_off: { es: "Sin IA (solo scraping)", en: "No AI (scraping only)" },
+  ai_off_desc: {
+    es: "Sin puntuación ni redacción IA. El análisis del CV será texto en bruto a revisar.",
+    en: "No AI scoring or drafting. CV analysis will be raw text to review.",
+  },
+  ai_continue: { es: "Continuar", en: "Continue" },
+  t_ai_saved: { es: "IA configurada", en: "AI configured" },
+  t_ai_err: { es: "No se pudo guardar la IA", en: "Couldn't save AI settings" },
   // welcome
   welcome_title: { es: "Bienvenido a JobSlaves", en: "Welcome to JobSlaves" },
   welcome_desc: {
