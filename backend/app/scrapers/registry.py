@@ -21,17 +21,21 @@ from app.config import settings
 from app.scrapers.base import BaseScraper
 from app.scrapers.country_map import EU_COUNTRIES, jobspy_params_for, resolve_regions
 from app.scrapers.jobspy_scraper import JobspyPlan, JobspyScraper
+from app.scrapers.platsbanken import PlatsbankenScraper
 from app.scrapers.query_builder import build_search_queries
 from app.scrapers.remotive import RemotiveScraper
 from app.scrapers.tecnoempleo import TecnoempleoScraper
+from app.scrapers.weworkremotely import WeWorkRemotelyScraper
 
 logger = logging.getLogger(__name__)
 
 # Scrapers propios ya implementados, indexados por el `scraper_class` del catalogo.
-# Los boards marcados como "pendiente Pilar 2" (scraper_class=null) se ignoran aqui.
+# Los boards aun no implementados (scraper_class=null) se ignoran aqui.
 SCRAPER_BY_ID: dict[str, type[BaseScraper]] = {
     "RemotiveScraper": RemotiveScraper,
     "TecnoempleoScraper": TecnoempleoScraper,
+    "PlatsbankenScraper": PlatsbankenScraper,
+    "WeWorkRemotelyScraper": WeWorkRemotelyScraper,
 }
 
 _DYNAMIC_KEYS = ("regions", "region_preset", "platforms", "queries")
@@ -178,11 +182,13 @@ def build_active_scrapers(cv: dict | None, prefs: dict | None) -> list[BaseScrap
             instances.append(JobspyScraper(plans))
 
     for p in active:
-        if p.get("method") == "scraper" and p.get("scraper_class"):
-            cls = SCRAPER_BY_ID.get(p["scraper_class"])
+        # Cualquier plataforma con un scraper propio implementado (sea method
+        # "scraper" o "api"); jobspy va aparte, y apply_only/mcp no aportan ofertas.
+        cls_name = p.get("scraper_class")
+        if p.get("method") in ("scraper", "api") and cls_name:
+            cls = SCRAPER_BY_ID.get(cls_name)
             if cls:
                 instances.append(cls())
-        # method in {api, apply_only, mcp}: se implementan en Pilares 2/3.
 
     if not instances:
         logger.info("registry: sin scrapers activos para regiones=%s, usando legacy", regions)

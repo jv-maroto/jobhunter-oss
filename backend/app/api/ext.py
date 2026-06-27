@@ -55,6 +55,7 @@ def get_profile() -> dict:
         "salary_max_eur": prefs.get("salary_max_eur", 50000),
         "salary_expectation": prefs.get("salary_expectation", ""),
         "work_authorization_eu": prefs.get("work_authorization_eu", False),
+        "residence_country": prefs.get("residence_country") or personal.get("country", ""),
         "willing_to_relocate": prefs.get("willing_to_relocate", True),
         "remote_preference": prefs.get("remote_preference", "Open to remote"),
         "notice_period": prefs.get("notice_period", "2 weeks"),

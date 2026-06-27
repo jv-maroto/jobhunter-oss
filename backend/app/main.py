@@ -17,6 +17,7 @@ from app.api import (
     onboarding,
     persons,
     posts,
+    search_profile,
     settings as settings_api,
 )
 from app.config import settings
@@ -84,6 +85,7 @@ app.include_router(ext.router)
 app.include_router(comments.router)
 app.include_router(settings_api.router)
 app.include_router(onboarding.router)
+app.include_router(search_profile.router)
 
 
 @app.get("/")
