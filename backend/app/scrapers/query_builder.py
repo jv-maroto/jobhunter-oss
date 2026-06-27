@@ -41,11 +41,18 @@ def build_search_queries(cv: dict | None, prefs: dict | None, max_n: int = 8) ->
 
     max_n = int(prefs.get("max_queries", max_n) or max_n)
 
-    roles = [
+    # `search_preferences.roles` (elegidos por el usuario/IA en onboarding) tienen
+    # PRIORIDAD sobre los roles derivados de la experiencia.
+    pref_roles = [str(r).strip() for r in (prefs.get("roles") or []) if str(r).strip()]
+    exp_roles = [
         str(e.get("role", "")).strip()
         for e in (cv.get("experience") or [])
         if e.get("role")
     ]
+    roles: list[str] = []
+    for r in pref_roles + exp_roles:
+        if r and r not in roles:
+            roles.append(r)
     skills = _flatten_skills(cv.get("skills"))
 
     queries: list[str] = []
@@ -71,6 +78,20 @@ def build_search_queries(cv: dict | None, prefs: dict | None, max_n: int = 8) ->
 
     if not queries:
         logger.info("query_builder: perfil sin roles/skills, usando fallback legacy")
-        return list(_LEGACY_FALLBACK)[:max_n]
+        queries = list(_LEGACY_FALLBACK)
 
-    return queries[:max_n]
+    base = queries[:max_n]
+
+    # Scraping IA (opcional): enriquece las queries con variantes/idiomas via LLM.
+    # Solo si el usuario lo activo (ai_scraping_enabled) y hay IA disponible.
+    try:
+        from app.config import settings
+
+        if getattr(settings, "ai_scraping_enabled", False):
+            from app.scrapers.ai_query import ai_expand_queries
+
+            base = ai_expand_queries(cv, prefs, base, cap=max(max_n, 12))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("query_builder: expansion IA fallo: %s", exc)
+
+    return base

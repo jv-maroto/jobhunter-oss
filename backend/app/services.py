@@ -165,5 +165,20 @@ async def scrape_and_ingest(db: Session) -> dict[str, int]:
     thread para que el resto del backend siga respondiendo durante el scrape.
     """
     scraped = await run_all_scrapers()
+
+    # Scraping IA (opcional): re-rankea las ofertas nuevas por relevancia antes de
+    # ingerir. Solo si el usuario lo activo y hay IA disponible. Con fallback total.
+    if getattr(settings, "ai_scraping_enabled", False):
+        try:
+            from app.ai.router import ai_available
+
+            if ai_available():
+                from app.scrapers.rerank import rerank_jobs
+
+                cv = load_cv_master()
+                scraped = await asyncio.to_thread(rerank_jobs, scraped, cv, 40)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("rerank IA fallo, sigo sin reordenar: %s", exc)
+
     inserted, duplicates = await asyncio.to_thread(ingest_scraped_jobs, db, scraped)
     return {"scraped": len(scraped), "inserted": inserted, "duplicates": duplicates}

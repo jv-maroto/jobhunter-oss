@@ -5,8 +5,19 @@ import { Moon, Sun, Monitor } from "lucide-react";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { PaletteSwitcher } from "./PaletteSwitcher";
 
+/** Dark / light / system cycle + accent-palette picker, grouped together. */
 export function ThemeToggle() {
+  return (
+    <div className="flex items-center gap-1">
+      <PaletteSwitcher />
+      <ModeToggle />
+    </div>
+  );
+}
+
+function ModeToggle() {
   const { theme, setTheme } = useTheme();
   const mounted = React.useSyncExternalStore(
     React.useCallback(() => () => {}, []),

@@ -58,6 +58,13 @@ export interface FragmentResponse {
   chars?: number;
 }
 
+// Rol de trabajo sugerido (IA tier generation o heurística de experiencia+skills).
+export interface RoleSuggestion {
+  id: string;
+  label: string;
+  why: string;
+}
+
 export const REGION_PRESETS = [
   { id: "only_spain", label: "Solo España", regions: ["ES"] },
   { id: "all_europe", label: "Toda Europa", regions: ["EU"] },
@@ -98,7 +105,16 @@ export const onboardingApi = {
     return apiUpload<FragmentResponse>("/onboarding/linkedin", fd);
   },
 
+  linkedinPaste: (text: string) =>
+    api<FragmentResponse>("/onboarding/linkedin/paste", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
   merge: () => api<MergeResult>("/onboarding/merge", { method: "POST" }),
+
+  suggestRoles: () =>
+    api<{ roles: RoleSuggestion[] }>("/onboarding/roles", { method: "POST" }),
 
   draft: () => api<{ fragments: Record<string, Json>; merged: MergeResult | null }>(
     "/onboarding/draft",

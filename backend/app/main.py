@@ -10,12 +10,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    ai_settings,
     apply,
     comments,
     ext,
     integrations,
     jobs,
     metrics,
+    networking,
     onboarding,
     persons,
     posts,
@@ -90,6 +92,8 @@ app.include_router(onboarding.router)
 app.include_router(search_profile.router)
 app.include_router(integrations.router)
 app.include_router(apply.router)
+app.include_router(ai_settings.router)
+app.include_router(networking.router)
 
 
 @app.get("/")

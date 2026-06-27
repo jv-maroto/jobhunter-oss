@@ -9,25 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { LanguageToggle, useLang } from "@/lib/i18n";
 import {
   COUNTRY_OPTIONS,
   REGION_PRESETS,
   onboardingApi,
   type CvMaster,
   type MergeResult,
+  type RoleSuggestion,
 } from "@/lib/onboarding";
 
-type Step = "welcome" | "github" | "linkedin" | "cv" | "regions" | "review" | "done";
-const ORDER: Step[] = ["welcome", "github", "linkedin", "cv", "regions", "review", "done"];
+type Step = "welcome" | "github" | "linkedin" | "cv" | "regions" | "roles" | "review" | "done";
+const ORDER: Step[] = ["welcome", "github", "linkedin", "cv", "regions", "roles", "review", "done"];
 
-const STEP_LABELS: Record<Step, string> = {
-  welcome: "Bienvenida",
-  github: "GitHub",
-  linkedin: "LinkedIn",
-  cv: "CV",
-  regions: "Países",
-  review: "Revisión",
-  done: "Listo",
+const PRESET_T: Record<string, string> = {
+  only_spain: "rg_preset_es",
+  all_europe: "rg_preset_eu",
+  remote_worldwide: "rg_preset_remote",
 };
 
 function emptyCv(): CvMaster {
@@ -56,14 +54,22 @@ const SOURCE_COLORS: Record<string, string> = {
 export default function OnboardingPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const { t } = useLang();
 
   const [step, setStep] = React.useState<Step>("welcome");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [done, setDone] = React.useState<Record<string, boolean>>({});
 
   const [githubUser, setGithubUser] = React.useState("");
+  const [liText, setLiText] = React.useState("");
   const [regionPreset, setRegionPreset] = React.useState<string | null>("only_spain");
   const [customRegions, setCustomRegions] = React.useState<string[]>([]);
+
+  // Paso ROLES: sugerencias de IA + selección multi-chip + roles propios.
+  const [roleSuggestions, setRoleSuggestions] = React.useState<RoleSuggestion[] | null>(null);
+  const [extraRoles, setExtraRoles] = React.useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = React.useState<string[]>([]);
+  const [customRole, setCustomRole] = React.useState("");
 
   const [merge, setMerge] = React.useState<MergeResult | null>(null);
   const [cv, setCv] = React.useState<CvMaster | null>(null);
@@ -74,17 +80,34 @@ export default function OnboardingPage() {
   const next = () => setStep(ORDER[Math.min(idx + 1, ORDER.length - 1)]);
   const back = () => setStep(ORDER[Math.max(idx - 1, 0)]);
 
-  // ---- acciones de ingesta ----
   async function connectGithub() {
     if (!githubUser.trim()) return;
     setBusy("github");
     try {
       await onboardingApi.github(githubUser.trim());
       setDone((d) => ({ ...d, github: true }));
-      toast.success("GitHub importado");
+      toast.success(t("t_gh_ok"));
       next();
     } catch {
-      toast.error("No se pudo importar GitHub (¿usuario correcto?)");
+      toast.error(t("t_gh_err"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pasteLinkedin() {
+    if (!liText.trim()) {
+      toast.error(t("t_text_empty"));
+      return;
+    }
+    setBusy("li-paste");
+    try {
+      await onboardingApi.linkedinPaste(liText.trim());
+      setDone((d) => ({ ...d, linkedin: true }));
+      toast.success(t("t_li_ok"));
+      next();
+    } catch {
+      toast.error(t("t_file_err"));
     } finally {
       setBusy(null);
     }
@@ -98,16 +121,15 @@ export default function OnboardingPage() {
       setDone((d) => ({ ...d, [kind]: true }));
       const warns = res.warnings ?? [];
       if (warns.length) toast.warning(warns[0]);
-      else toast.success(kind === "cv" ? "CV analizado" : "LinkedIn importado");
+      else toast.success(kind === "cv" ? t("t_cv_ok") : t("t_li_ok"));
       next();
     } catch {
-      toast.error("No se pudo procesar el archivo");
+      toast.error(t("t_file_err"));
     } finally {
       setBusy(null);
     }
   }
 
-  // ---- fusión al entrar en revisión ----
   const runMerge = React.useCallback(async () => {
     setBusy("merge");
     try {
@@ -115,7 +137,6 @@ export default function OnboardingPage() {
       setMerge(res);
       setCv(res.cv_master);
     } catch {
-      // Sin fragmentos (todo omitido) -> perfil vacío para rellenar a mano.
       setMerge({ cv_master: emptyCv(), field_sources: {}, conflicts: [], llm_used: false });
       setCv(emptyCv());
     } finally {
@@ -127,6 +148,38 @@ export default function OnboardingPage() {
     if (step === "review" && !merge) void runMerge();
   }, [step, merge, runMerge]);
 
+  const loadRoles = React.useCallback(async () => {
+    setBusy("roles");
+    try {
+      const res = await onboardingApi.suggestRoles();
+      const roles = res.roles ?? [];
+      setRoleSuggestions(roles);
+      // Pre-seleccionamos todas las sugerencias; el usuario quita las que no encajen.
+      setSelectedRoles((cur) => (cur.length ? cur : roles.map((r) => r.label)));
+    } catch {
+      setRoleSuggestions([]); // sin IA/backend: el usuario añade los suyos a mano
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (step === "roles" && roleSuggestions === null && busy !== "roles") void loadRoles();
+  }, [step, roleSuggestions, busy, loadRoles]);
+
+  const toggleRole = (label: string) =>
+    setSelectedRoles((r) => (r.includes(label) ? r.filter((x) => x !== label) : [...r, label]));
+
+  function addCustomRole() {
+    const label = customRole.trim();
+    if (!label) return;
+    if (!extraRoles.includes(label) && !(roleSuggestions ?? []).some((r) => r.label === label)) {
+      setExtraRoles((r) => [...r, label]);
+    }
+    setSelectedRoles((r) => (r.includes(label) ? r : [...r, label]));
+    setCustomRole("");
+  }
+
   function patchPersonal(key: string, value: string) {
     setCv((c) => (c ? { ...c, personal: { ...(c.personal ?? {}), [key]: value } } : c));
   }
@@ -134,18 +187,23 @@ export default function OnboardingPage() {
   async function saveProfile() {
     if (!cv) return;
     if (!cv.personal?.name?.trim()) {
-      toast.error("El nombre es obligatorio");
+      toast.error(t("t_name_req"));
       return;
     }
     const regions = regionPreset
       ? REGION_PRESETS.find((p) => p.id === regionPreset)?.regions ?? []
       : customRegions;
+    if (regions.length === 0) {
+      toast.error(t("t_region_req"));
+      return;
+    }
     const finalCv: CvMaster = {
       ...cv,
       search_preferences: {
         ...(cv.search_preferences ?? {}),
         region_preset: regionPreset ?? "custom",
-        regions,
+        regions: [...regions],
+        roles: [...selectedRoles],
         queries_auto: true,
       },
     };
@@ -155,7 +213,7 @@ export default function OnboardingPage() {
       await qc.invalidateQueries({ queryKey: ["onboarding", "status"] });
       setStep("done");
     } catch {
-      toast.error("No se pudo guardar el perfil");
+      toast.error(t("t_saved_err"));
     } finally {
       setBusy(null);
     }
@@ -169,34 +227,32 @@ export default function OnboardingPage() {
   return (
     <div className="fixed inset-0 z-[100] overflow-y-auto bg-[hsl(var(--background))]/95 backdrop-blur-xl">
       <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 px-5 py-10">
-        <Stepper step={step} />
+        <div className="flex items-center justify-between gap-3">
+          <Stepper step={step} />
+          <LanguageToggle />
+        </div>
 
         {step === "welcome" && (
-          <WelcomeStep
-            onStart={() => goTo("github")}
-            onManual={async () => {
-              goTo("regions");
-            }}
-          />
+          <WelcomeStep onStart={() => goTo("github")} onManual={() => goTo("regions")} />
         )}
 
         {step === "github" && (
           <StepCard
-            title="Conecta tu GitHub"
-            description="Analizamos tus repos públicos para extraer skills y proyectos destacados. Opcional."
+            title={t("gh_title")}
+            description={t("gh_desc")}
             onBack={back}
             onSkip={next}
             done={done.github}
           >
             <div className="flex gap-2">
               <Input
-                placeholder="usuario o https://github.com/usuario"
+                placeholder={t("gh_ph")}
                 value={githubUser}
                 onChange={(e) => setGithubUser(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && connectGithub()}
               />
               <Button onClick={connectGithub} disabled={busy === "github" || !githubUser.trim()}>
-                {busy === "github" ? "Importando…" : "Importar"}
+                {busy === "github" ? t("importing") : t("import")}
               </Button>
             </div>
           </StepCard>
@@ -204,29 +260,42 @@ export default function OnboardingPage() {
 
         {step === "linkedin" && (
           <StepCard
-            title="Importa tu LinkedIn"
-            description="Sube el .zip del export oficial («Get a copy of your data») o el PDF de tu perfil. Sin riesgo de baneo."
+            title={t("li_title")}
+            description={t("li_desc")}
             onBack={back}
             onSkip={next}
             done={done.linkedin}
           >
+            <label className="mb-1 block text-xs text-muted-foreground">{t("li_paste_label")}</label>
+            <Textarea
+              rows={5}
+              placeholder={t("li_paste_ph")}
+              value={liText}
+              onChange={(e) => setLiText(e.target.value)}
+            />
+            <Button
+              className="mt-2"
+              onClick={pasteLinkedin}
+              disabled={busy === "li-paste" || !liText.trim()}
+            >
+              {busy === "li-paste" ? t("processing") : t("li_paste_btn")}
+            </Button>
+
+            <p className="mt-4 mb-1 text-xs text-muted-foreground">{t("li_or_upload")}</p>
             <FileDrop
               accept=".zip,.pdf"
               busy={busy === "linkedin"}
-              label="Arrastra tu .zip o .pdf de LinkedIn"
+              label=".zip / .pdf"
               onFile={(f) => uploadFile("linkedin", f)}
             />
-            <p className="mt-2 text-xs text-muted-foreground">
-              En LinkedIn: Ajustes → Privacidad de datos → Obtén una copia de tus datos → «el archivo
-              mayor» (incluye experiencia y skills).
-            </p>
+            <p className="mt-2 text-[11px] text-muted-foreground">{t("li_ext_note")}</p>
           </StepCard>
         )}
 
         {step === "cv" && (
           <StepCard
-            title="Sube tu CV"
-            description="PDF, DOCX o TXT. Lo analizamos con IA para estructurar tu experiencia. Opcional."
+            title={t("cv_title")}
+            description={t("cv_desc")}
             onBack={back}
             onSkip={next}
             done={done.cv}
@@ -234,7 +303,7 @@ export default function OnboardingPage() {
             <FileDrop
               accept=".pdf,.docx,.txt"
               busy={busy === "cv"}
-              label="Arrastra tu CV (.pdf / .docx / .txt)"
+              label={t("cv_drop")}
               onFile={(f) => uploadFile("cv", f)}
             />
           </StepCard>
@@ -242,11 +311,11 @@ export default function OnboardingPage() {
 
         {step === "regions" && (
           <StepCard
-            title="¿Dónde quieres buscar trabajo?"
-            description="Activamos las plataformas relevantes a los países que elijas."
+            title={t("rg_title")}
+            description={t("rg_desc")}
             onBack={back}
-            onNext={() => goTo("review")}
-            nextLabel="Generar perfil"
+            onNext={() => goTo("roles")}
+            nextLabel={t("next")}
           >
             <div className="flex flex-wrap gap-2">
               {REGION_PRESETS.map((p) => (
@@ -258,20 +327,82 @@ export default function OnboardingPage() {
                     setCustomRegions([]);
                   }}
                 >
-                  {p.label}
+                  {t(PRESET_T[p.id] ?? p.id)}
                 </Chip>
               ))}
             </div>
             <div className="mt-4">
-              <p className="mb-2 text-xs text-muted-foreground">O elige países concretos:</p>
+              <p className="mb-2 text-xs text-muted-foreground">{t("rg_or_countries")}</p>
               <div className="flex flex-wrap gap-2">
                 {COUNTRY_OPTIONS.map((c) => (
                   <Chip key={c.iso} active={customRegions.includes(c.iso)} onClick={() => toggleCountry(c.iso)}>
-                    {c.label}
+                    {t(`c_${c.iso}`)}
                   </Chip>
                 ))}
               </div>
             </div>
+          </StepCard>
+        )}
+
+        {step === "roles" && (
+          <StepCard
+            title={t("roles_title")}
+            description={t("roles_desc")}
+            onBack={back}
+            onNext={() => goTo("review")}
+            nextLabel={t("generate")}
+          >
+            {busy === "roles" ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">{t("roles_loading")}</p>
+            ) : (
+              <>
+                {(roleSuggestions ?? []).length === 0 && extraRoles.length === 0 && (
+                  <p className="mb-3 text-xs text-muted-foreground">{t("roles_empty")}</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {(roleSuggestions ?? []).map((r) => (
+                    <Chip
+                      key={r.id}
+                      active={selectedRoles.includes(r.label)}
+                      onClick={() => toggleRole(r.label)}
+                      title={r.why}
+                    >
+                      {r.label}
+                    </Chip>
+                  ))}
+                  {extraRoles.map((label) => (
+                    <Chip
+                      key={`x:${label}`}
+                      active={selectedRoles.includes(label)}
+                      onClick={() => toggleRole(label)}
+                    >
+                      {label}
+                    </Chip>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <Input
+                    placeholder={t("roles_add_ph")}
+                    value={customRole}
+                    onChange={(e) => setCustomRole(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomRole();
+                      }
+                    }}
+                  />
+                  <Button variant="outline" onClick={addCustomRole} disabled={!customRole.trim()}>
+                    {t("roles_add_btn")}
+                  </Button>
+                </div>
+
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  {selectedRoles.length} {t("roles_selected")}
+                </p>
+              </>
+            )}
           </StepCard>
         )}
 
@@ -293,10 +424,8 @@ export default function OnboardingPage() {
         {step === "done" && (
           <Card variant="solid">
             <CardHeader>
-              <CardTitle>¡Perfil creado! 🎉</CardTitle>
-              <CardDescription>
-                Tu cv_master.json ya está listo. Puedes ajustarlo cuando quieras en Ajustes.
-              </CardDescription>
+              <CardTitle>{t("done_title")}</CardTitle>
+              <CardDescription>{t("done_desc")}</CardDescription>
             </CardHeader>
             <CardContent>
               <Button
@@ -306,7 +435,7 @@ export default function OnboardingPage() {
                   router.replace("/today");
                 }}
               >
-                Ir al dashboard
+                {t("go_dashboard")}
               </Button>
             </CardContent>
           </Card>
@@ -319,9 +448,10 @@ export default function OnboardingPage() {
 // ---------------- subcomponentes ----------------
 
 function Stepper({ step }: { step: Step }) {
+  const { t } = useLang();
   const idx = ORDER.indexOf(step);
   return (
-    <div className="flex items-center justify-between gap-1">
+    <div className="flex flex-1 items-center justify-between gap-1">
       {ORDER.map((s, i) => (
         <div key={s} className="flex flex-1 flex-col items-center gap-1.5">
           <div
@@ -331,7 +461,7 @@ function Stepper({ step }: { step: Step }) {
             )}
           />
           <span className={cn("text-[10px]", i === idx ? "text-foreground" : "text-muted-foreground")}>
-            {STEP_LABELS[s]}
+            {t(`step_${s}`)}
           </span>
         </div>
       ))}
@@ -340,21 +470,19 @@ function Stepper({ step }: { step: Step }) {
 }
 
 function WelcomeStep({ onStart, onManual }: { onStart: () => void; onManual: () => void }) {
+  const { t } = useLang();
   return (
     <Card variant="solid">
       <CardHeader>
-        <CardTitle>Bienvenido a JobHunter</CardTitle>
-        <CardDescription>
-          Todo corre en tu máquina (local-first, sin nube). Vamos a construir tu perfil a partir de tu
-          GitHub, LinkedIn y CV. Nada se guarda sin que lo revises.
-        </CardDescription>
+        <CardTitle>{t("welcome_title")}</CardTitle>
+        <CardDescription>{t("welcome_desc")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <Button variant="solid" size="lg" onClick={onStart}>
-          Empezar
+          {t("start")}
         </Button>
         <button className="text-xs text-muted-foreground hover:text-foreground" onClick={onManual}>
-          Prefiero rellenarlo a mano
+          {t("manual")}
         </button>
       </CardContent>
     </Card>
@@ -368,7 +496,7 @@ function StepCard({
   onBack,
   onNext,
   onSkip,
-  nextLabel = "Siguiente",
+  nextLabel,
   done,
 }: {
   title: string;
@@ -380,12 +508,13 @@ function StepCard({
   nextLabel?: string;
   done?: boolean;
 }) {
+  const { t } = useLang();
   return (
     <Card variant="solid">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {title}
-          {done && <span className="text-xs text-emerald-400">✓ importado</span>}
+          {done && <span className="text-xs text-emerald-400">{t("imported")}</span>}
         </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
@@ -393,17 +522,17 @@ function StepCard({
         {children}
         <div className="mt-5 flex items-center justify-between">
           <Button variant="ghost" onClick={onBack} disabled={!onBack}>
-            Atrás
+            {t("back")}
           </Button>
           <div className="flex gap-2">
             {onSkip && (
               <Button variant="ghost" onClick={onSkip}>
-                Omitir
+                {t("skip")}
               </Button>
             )}
             {onNext && (
               <Button variant="solid" onClick={onNext}>
-                {nextLabel}
+                {nextLabel ?? t("next")}
               </Button>
             )}
           </div>
@@ -417,14 +546,17 @@ function Chip({
   active,
   onClick,
   children,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={cn(
         "rounded-full border px-3 py-1.5 text-sm transition-colors",
         active
@@ -448,6 +580,7 @@ function FileDrop({
   busy: boolean;
   onFile: (f: File) => void;
 }) {
+  const { t } = useLang();
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   return (
@@ -465,7 +598,7 @@ function FileDrop({
       }}
       onClick={() => inputRef.current?.click()}
       className={cn(
-        "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm transition-colors",
+        "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center text-sm transition-colors",
         drag
           ? "border-[hsl(var(--accent-1))]/60 bg-[hsl(var(--accent-1))]/10"
           : "border-[hsl(var(--border-strong))] hover:border-[hsl(var(--accent-1))]/40",
@@ -481,7 +614,7 @@ function FileDrop({
           if (f) onFile(f);
         }}
       />
-      <span className="text-muted-foreground">{busy ? "Procesando…" : label}</span>
+      <span className="text-muted-foreground">{busy ? t("processing") : label}</span>
     </div>
   );
 }
@@ -523,11 +656,13 @@ function ReviewStep({
   onSetCv: (c: CvMaster) => void;
   onSave: () => void;
 }) {
+  const { t } = useLang();
+
   if (busy === "merge" || !cv) {
     return (
       <Card variant="solid">
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Fusionando tu perfil…
+          {t("rv_merging")}
         </CardContent>
       </Card>
     );
@@ -538,37 +673,33 @@ function ReviewStep({
   const skills = cv.skills ?? {};
   const allSkills = Object.values(skills).flat();
 
-  const PERSONAL_FIELDS: { key: string; label: string }[] = [
-    { key: "name", label: "Nombre" },
-    { key: "title", label: "Título profesional" },
-    { key: "email", label: "Email" },
-    { key: "phone", label: "Teléfono" },
-    { key: "location", label: "Ubicación" },
-    { key: "github", label: "GitHub" },
-    { key: "linkedin", label: "LinkedIn" },
-    { key: "portfolio", label: "Portfolio" },
+  const PERSONAL_FIELDS: { key: string; tk: string }[] = [
+    { key: "name", tk: "f_name" },
+    { key: "title", tk: "f_title" },
+    { key: "email", tk: "f_email" },
+    { key: "phone", tk: "f_phone" },
+    { key: "location", tk: "f_location" },
+    { key: "github", tk: "f_github" },
+    { key: "linkedin", tk: "f_linkedin" },
+    { key: "portfolio", tk: "f_portfolio" },
   ];
 
   return (
     <Card variant="solid">
       <CardHeader>
-        <CardTitle>Revisa tu perfil</CardTitle>
-        <CardDescription>
-          Lo generamos a partir de tus fuentes. Edita lo que quieras antes de guardar — nada se ha
-          escrito todavía.
-        </CardDescription>
+        <CardTitle>{t("rv_title")}</CardTitle>
+        <CardDescription>{t("rv_desc")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {merge && merge.conflicts.length > 0 && (
           <div className="rounded-md border border-[hsl(var(--accent-warn))]/40 bg-[hsl(var(--accent-warn))]/10 p-3 text-xs">
             <p className="mb-1 font-medium text-[hsl(var(--accent-warn))]">
-              {merge.conflicts.length} dato(s) con discrepancias entre fuentes:
+              {merge.conflicts.length} {t("rv_conflicts")}
             </p>
             <ul className="space-y-0.5 text-muted-foreground">
               {merge.conflicts.slice(0, 5).map((c, i) => (
                 <li key={i}>
-                  <code>{c.field}</code>: usamos «{String(c.kept)}» ({c.kept_source}) en vez de «
-                  {String(c.other)}» ({c.other_source})
+                  <code>{c.field}</code>: «{String(c.kept)}» ({c.kept_source}) / «{String(c.other)}» ({c.other_source})
                 </li>
               ))}
             </ul>
@@ -579,7 +710,7 @@ function ReviewStep({
           {PERSONAL_FIELDS.map((f) => (
             <label key={f.key} className="flex flex-col gap-1 text-xs">
               <span className="flex items-center text-muted-foreground">
-                {f.label}
+                {t(f.tk)}
                 <SourceBadge source={fs[`personal.${f.key}`]} />
               </span>
               <Input
@@ -592,7 +723,7 @@ function ReviewStep({
 
         <label className="flex flex-col gap-1 text-xs">
           <span className="flex items-center text-muted-foreground">
-            Resumen (ES)
+            {t("rv_summary_es")}
             <SourceBadge source={fs.summary_es} />
           </span>
           <Textarea
@@ -603,9 +734,9 @@ function ReviewStep({
         </label>
 
         <div className="grid grid-cols-3 gap-3 text-center text-xs">
-          <Stat n={cv.experience?.length ?? 0} label="Experiencias" />
-          <Stat n={allSkills.length} label="Skills" />
-          <Stat n={cv.projects?.length ?? 0} label="Proyectos" />
+          <Stat n={cv.experience?.length ?? 0} label={t("rv_exp")} />
+          <Stat n={allSkills.length} label={t("rv_skills")} />
+          <Stat n={cv.projects?.length ?? 0} label={t("rv_proj")} />
         </div>
 
         {allSkills.length > 0 && (
@@ -620,7 +751,7 @@ function ReviewStep({
 
         <details open={rawOpen} onToggle={(e) => setRawOpen((e.target as HTMLDetailsElement).open)}>
           <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-            Editar JSON completo (avanzado)
+            {t("rv_json")}
           </summary>
           <Textarea
             className="mt-2 font-mono text-[11px]"
@@ -629,9 +760,9 @@ function ReviewStep({
             onBlur={(e) => {
               try {
                 onSetCv(JSON.parse(e.target.value));
-                toast.success("JSON aplicado");
+                toast.success(t("t_json_ok"));
               } catch {
-                toast.error("JSON inválido, no aplicado");
+                toast.error(t("t_json_err"));
               }
             }}
           />
@@ -639,10 +770,10 @@ function ReviewStep({
 
         <div className="flex items-center justify-between">
           <Button variant="ghost" onClick={onBack}>
-            Atrás
+            {t("back")}
           </Button>
           <Button variant="solid" onClick={onSave} disabled={busy === "complete"}>
-            {busy === "complete" ? "Guardando…" : "Guardar perfil"}
+            {busy === "complete" ? t("saving") : t("save")}
           </Button>
         </div>
       </CardContent>

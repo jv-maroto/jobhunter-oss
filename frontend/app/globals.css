@@ -101,6 +101,98 @@
   --glass-highlight: rgba(255, 255, 255, 0.7);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Selectable color palettes — toggled via <html data-palette="…">.
+   Each palette only remaps the brand accent tokens (--accent-1/--accent-2
+   plus their direct derivatives --ring/--primary/--primary-foreground).
+   Everything else (surfaces, semantics, score gradient) stays stable.
+
+   • Dark variants live under  :root[data-palette="x"]            (spec 0,2,0)
+   • Light variants live under :root.light[data-palette="x"]      (spec 0,3,0)
+     so they always win over the dark block when the .light class is set.
+   • "cyan" === the project default (kept identical to the base tokens).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Cyan (default) ──────────────────────────────────────────────────── */
+:root[data-palette="cyan"] {
+  --accent-1: 187 92% 49%;
+  --accent-2: 75 85% 60%;
+  --ring: 187 92% 49%;
+  --primary: 187 92% 49%;
+  --primary-foreground: 226 36% 6%;
+}
+:root.light[data-palette="cyan"] {
+  --accent-1: 187 92% 38%;
+  --accent-2: 92 70% 38%;
+  --ring: 187 92% 38%;
+  --primary: 187 92% 38%;
+  --primary-foreground: 0 0% 100%;
+}
+
+/* ── Violet ──────────────────────────────────────────────────────────── */
+:root[data-palette="violet"] {
+  --accent-1: 262 83% 64%;
+  --accent-2: 322 84% 64%;
+  --ring: 262 83% 64%;
+  --primary: 262 83% 64%;
+  --primary-foreground: 0 0% 100%;
+}
+:root.light[data-palette="violet"] {
+  --accent-1: 262 68% 52%;
+  --accent-2: 322 66% 50%;
+  --ring: 262 68% 52%;
+  --primary: 262 68% 52%;
+  --primary-foreground: 0 0% 100%;
+}
+
+/* ── Emerald ─────────────────────────────────────────────────────────── */
+:root[data-palette="emerald"] {
+  --accent-1: 160 84% 45%;
+  --accent-2: 174 66% 56%;
+  --ring: 160 84% 45%;
+  --primary: 160 84% 45%;
+  --primary-foreground: 226 36% 6%;
+}
+:root.light[data-palette="emerald"] {
+  --accent-1: 160 84% 32%;
+  --accent-2: 174 60% 36%;
+  --ring: 160 84% 32%;
+  --primary: 160 84% 32%;
+  --primary-foreground: 0 0% 100%;
+}
+
+/* ── Amber ───────────────────────────────────────────────────────────── */
+:root[data-palette="amber"] {
+  --accent-1: 38 95% 55%;
+  --accent-2: 20 90% 58%;
+  --ring: 38 95% 55%;
+  --primary: 38 95% 55%;
+  --primary-foreground: 30 50% 8%;
+}
+:root.light[data-palette="amber"] {
+  --accent-1: 32 90% 44%;
+  --accent-2: 18 85% 46%;
+  --ring: 32 90% 44%;
+  --primary: 32 90% 44%;
+  --primary-foreground: 0 0% 100%;
+}
+
+/* ── Rose ────────────────────────────────────────────────────────────── */
+:root[data-palette="rose"] {
+  --accent-1: 346 84% 61%;
+  --accent-2: 290 75% 65%;
+  --ring: 346 84% 61%;
+  --primary: 346 84% 61%;
+  --primary-foreground: 0 0% 100%;
+}
+:root.light[data-palette="rose"] {
+  --accent-1: 346 75% 48%;
+  --accent-2: 290 60% 50%;
+  --ring: 346 75% 48%;
+  --primary: 346 75% 48%;
+  --primary-foreground: 0 0% 100%;
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

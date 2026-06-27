@@ -5,6 +5,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { LanguageProvider } from "@/lib/i18n";
+import { readStoredPalette } from "@/components/layout/PaletteSwitcher";
+
+/**
+ * Restores the persisted accent palette (<html data-palette="…">) as early as
+ * possible on the client. Renders nothing. Runs in a layout effect so the
+ * attribute is set before paint, minimizing any flash of the default palette.
+ */
+function PaletteInit() {
+  React.useLayoutEffect(() => {
+    document.documentElement.dataset.palette = readStoredPalette();
+  }, []);
+  return null;
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = React.useState(
@@ -28,9 +42,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
     >
       <QueryClientProvider client={client}>
-        <div className="cc-backdrop" aria-hidden />
-        {children}
-        <CommandPalette />
+        <LanguageProvider>
+          <PaletteInit />
+          <div className="cc-backdrop" aria-hidden />
+          {children}
+          <CommandPalette />
         <Toaster
           position="bottom-right"
           theme="dark"
@@ -45,7 +61,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
               description: "!text-muted-foreground",
             },
           }}
-        />
+          />
+        </LanguageProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

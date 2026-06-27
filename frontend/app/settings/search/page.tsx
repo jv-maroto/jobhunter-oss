@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { COUNTRY_OPTIONS, REGION_PRESETS } from "@/lib/onboarding";
 import { TOS_COLORS, type PlatformInfo } from "@/lib/searchProfile";
 import { useRunScrape, useSearchProfile, useUpdateSearchProfile } from "@/hooks/useSearchProfile";
+import { useAiSettings, useUpdateAiSettings } from "@/hooks/useAiSettings";
 
 export default function SearchSettingsPage() {
   const { data, isLoading } = useSearchProfile();
@@ -43,19 +44,16 @@ export default function SearchSettingsPage() {
   const togglePlatform = (id: string, def: boolean) =>
     setPlatforms((m) => ({ ...m, [id]: !(m[id] ?? def) }));
 
-  const pickPreset = (id: string) => {
-    setPreset(id);
-    setRegions([]);
-  };
-  const toggleCountry = (iso: string) => {
-    setPreset(null);
+  // Preset y países concretos se COMBINAN (p.ej. Remoto + España/Alemania como preferencia).
+  const pickPreset = (id: string) => setPreset((cur) => (cur === id ? null : id));
+  const toggleCountry = (iso: string) =>
     setRegions((r) => (r.includes(iso) ? r.filter((x) => x !== iso) : [...r, iso]));
-  };
 
   async function save() {
-    const effectiveRegions: string[] = preset
-      ? [...(REGION_PRESETS.find((p) => p.id === preset)?.regions ?? [])]
-      : regions;
+    const presetRegions = preset
+      ? REGION_PRESETS.find((p) => p.id === preset)?.regions ?? []
+      : [];
+    const effectiveRegions: string[] = Array.from(new Set([...presetRegions, ...regions]));
     if (effectiveRegions.length === 0) {
       toast.error("Elige al menos una región o país");
       return;
@@ -187,6 +185,7 @@ export default function SearchSettingsPage() {
               onChange={(e) => setManualQueries(e.target.value)}
             />
           )}
+          <AiBoostToggle />
         </CardContent>
       </Card>
 
@@ -198,6 +197,53 @@ export default function SearchSettingsPage() {
           {update.isPending ? "Guardando…" : "Guardar preferencias"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function AiBoostToggle() {
+  const { data } = useAiSettings();
+  const update = useUpdateAiSettings();
+  const enabled = data?.ai_scraping_enabled ?? false;
+
+  async function toggle() {
+    try {
+      const res = await update.mutateAsync({ ai_scraping_enabled: !enabled });
+      toast.success(
+        res.ai_scraping_enabled ? "IA en la búsqueda activada" : "IA en la búsqueda desactivada",
+      );
+    } catch {
+      toast.error("No se pudo cambiar (configura la IA en Ajustes › IA)");
+    }
+  }
+
+  return (
+    <div className="mt-1 flex items-start justify-between gap-3 rounded-md border border-[hsl(var(--border))] px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Potenciar búsqueda con IA (queries + re-rank)</p>
+        <p className="text-xs text-muted-foreground">
+          Genera variantes de búsqueda desde tu perfil y reordena las ofertas nuevas por relevancia.
+          Requiere IA disponible (Ajustes › IA).
+        </p>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={!data || update.isPending}
+        className={cn(
+          "mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors disabled:opacity-50",
+          enabled
+            ? "border-[hsl(var(--accent-1))]/55 bg-[hsl(var(--accent-1))]/30"
+            : "border-[hsl(var(--border))] bg-white/5",
+        )}
+        aria-pressed={enabled}
+      >
+        <span
+          className={cn(
+            "block h-4 w-4 rounded-full bg-foreground transition-transform",
+            enabled ? "translate-x-6" : "translate-x-1",
+          )}
+        />
+      </button>
     </div>
   );
 }

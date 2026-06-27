@@ -26,6 +26,10 @@ dependencies = [
 gemini = [
     "google-genai>=0.3",
 ]
+# OpenAI / GPT como provider cloud alternativo (import perezoso del SDK).
+openai = [
+    "openai>=1.40",
+]
 # Onboarding (Pilar 1): parsing de CV (PDF/DOCX) y subida multipart.
 onboarding = [
     "python-multipart>=0.0.9",

@@ -7,14 +7,14 @@ import {
   KanbanSquare,
   BarChart3,
   Building2,
-  ContactRound,
   Settings,
-  Briefcase,
   Command,
   FileText,
   ListChecks,
   Globe,
   Mail,
+  Bot,
+  Users,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -44,12 +44,13 @@ const NAV: NavItem[] = [
   { href: "/metrics", label: "Metrics", icon: BarChart3 },
   { href: "/companies", label: "Companies", icon: Building2 },
   {
-    href: "/linkedin",
-    label: "LinkedIn",
-    icon: ContactRound,
+    href: "/networking",
+    label: "Networking",
+    icon: Users,
     badge: (c) => (c.persons > 0 ? c.persons : undefined),
   },
   { href: "/settings/search", label: "Búsqueda", icon: Globe },
+  { href: "/settings/ai", label: "IA", icon: Bot },
   { href: "/settings/integrations", label: "Correo", icon: Mail },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -79,12 +80,11 @@ export function Sidebar() {
             "mx-1.5 mb-2 hover:bg-white/5",
           )}
         >
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[hsl(var(--accent-1))] to-[hsl(var(--accent-2))] text-[hsl(var(--primary-foreground))] shadow-[0_4px_16px_-4px_hsl(var(--accent-1)/0.6)]">
-            <Briefcase className="h-4 w-4" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="JobSlaves" className="h-8 w-8 shrink-0 object-contain" />
           <div className="leading-tight whitespace-nowrap hidden group-hover/sidebar:flex flex-col">
             <div className="text-sm font-semibold font-[family-name:var(--font-display)]">
-              JobHunter
+              JobSlaves
             </div>
             <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
               Command Center

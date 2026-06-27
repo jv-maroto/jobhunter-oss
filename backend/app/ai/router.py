@@ -13,6 +13,50 @@ logger = logging.getLogger(__name__)
 # Tiers soportados.
 KNOWN_TIERS = {"scoring", "generation", "messaging"}
 
+# Slot de provider a usar por (provider cloud, tier). El router escoge el modelo
+# barato para scoring/messaging y el potente para generation.
+_CLOUD_SLOTS: dict[str, dict[str, str]] = {
+    "anthropic": {
+        "scoring": "anthropic-haiku",
+        "generation": "anthropic-sonnet",
+        "messaging": "anthropic-haiku",
+    },
+    "openai": {
+        "scoring": "openai-mini",
+        "generation": "openai-gpt",
+        "messaging": "openai-mini",
+    },
+    "gemini": {
+        "scoring": "gemini-flash",
+        "generation": "gemini-pro",
+        "messaging": "gemini-flash",
+    },
+}
+_CLOUD_ORDER: tuple[str, ...] = ("anthropic", "openai", "gemini")
+
+
+def build_tier_map(mode: str, cloud_provider: str) -> dict[str, list[str]]:
+    """Construye el tier_map segun el modo efectivo del keystore.
+
+    - off   -> sin providers (IA desactivada).
+    - local -> solo Ollama.
+    - cloud -> el provider cloud elegido PRIMERO, luego los otros cloud como
+      fallback, y Ollama como ultimo recurso.
+    """
+    tiers = ("scoring", "generation", "messaging")
+    if mode == "off":
+        return {t: [] for t in tiers}
+    if mode == "local":
+        return {t: ["ollama-qwen"] for t in tiers}
+    # cloud
+    if cloud_provider not in _CLOUD_SLOTS:
+        cloud_provider = "anthropic"
+    ordered = [cloud_provider] + [p for p in _CLOUD_ORDER if p != cloud_provider]
+    out: dict[str, list[str]] = {}
+    for t in tiers:
+        out[t] = [_CLOUD_SLOTS[p][t] for p in ordered] + ["ollama-qwen"]
+    return out
+
 
 class LLMRouter:
     """Selecciona provider+modelo segun tier con fallback automatico.
@@ -128,27 +172,48 @@ def set_router(router: LLMRouter) -> None:
 
 
 def build_default_router(cost_tracker: Any | None = None) -> LLMRouter:
-    """Construye el router por defecto desde `settings`."""
+    """Construye el router por defecto.
+
+    Las CLAVES se leen del keystore (data/integrations/ai.json) con fallback a
+    `settings`/.env. Los tiers se construyen segun el modo efectivo del keystore
+    (`resolve_mode()`): cloud -> el provider elegido primero; local -> Ollama;
+    off -> sin providers. Mantiene los mismos slot-keys que antes mas los nuevos
+    `openai-mini` / `openai-gpt`.
+    """
+    from app.ai import keystore
     from app.ai.providers.anthropic_provider import AnthropicProvider
     from app.ai.providers.gemini_provider import GeminiProvider
     from app.ai.providers.ollama_provider import OllamaProvider
+    from app.ai.providers.openai_provider import OpenAIProvider
     from app.config import settings
+
+    anth_key = keystore.get_key("anthropic")
+    openai_key = keystore.get_key("openai")
+    gemini_key = keystore.get_key("gemini")
 
     # Un slot por (provider, modelo) usable.
     anth_haiku = AnthropicProvider(
-        api_key=settings.anthropic_api_key,
+        api_key=anth_key,
         default_model=settings.anthropic_scoring_model,
     )
     anth_sonnet = AnthropicProvider(
-        api_key=settings.anthropic_api_key,
+        api_key=anth_key,
         default_model=settings.anthropic_generation_model,
     )
+    openai_mini = OpenAIProvider(
+        api_key=openai_key,
+        default_model=settings.openai_scoring_model,
+    )
+    openai_gpt = OpenAIProvider(
+        api_key=openai_key,
+        default_model=settings.openai_generation_model,
+    )
     gem_flash = GeminiProvider(
-        api_key=settings.gemini_api_key,
+        api_key=gemini_key,
         default_model=settings.gemini_scoring_model,
     )
     gem_pro = GeminiProvider(
-        api_key=settings.gemini_api_key,
+        api_key=gemini_key,
         default_model=settings.gemini_generation_model,
     )
     ollama = OllamaProvider(
@@ -159,6 +224,8 @@ def build_default_router(cost_tracker: Any | None = None) -> LLMRouter:
     providers: dict[str, LLMProvider] = {
         "anthropic-haiku": anth_haiku,
         "anthropic-sonnet": anth_sonnet,
+        "openai-mini": openai_mini,
+        "openai-gpt": openai_gpt,
         "gemini-flash": gem_flash,
         "gemini-pro": gem_pro,
         "ollama-qwen": ollama,
@@ -168,23 +235,22 @@ def build_default_router(cost_tracker: Any | None = None) -> LLMRouter:
         ),
     }
 
-    def parse_tier(value: str, default: list[str]) -> list[str]:
-        parts = [v.strip() for v in (value or "").split(",") if v.strip()]
-        return parts or default
-
-    tier_map: dict[str, list[str]] = {
-        "scoring": parse_tier(
-            settings.llm_scoring_tier,
-            ["anthropic-haiku", "gemini-flash", "ollama-qwen"],
-        ),
-        "generation": parse_tier(
-            settings.llm_generation_tier,
-            ["anthropic-sonnet", "gemini-pro", "ollama-qwen"],
-        ),
-        "messaging": parse_tier(
-            settings.llm_messaging_tier,
-            ["anthropic-haiku", "gemini-flash", "ollama-qwen"],
-        ),
-    }
+    state = keystore.get_state()
+    tier_map = build_tier_map(keystore.resolve_mode(), state.get("ai_cloud_provider", "anthropic"))
 
     return LLMRouter(providers=providers, tier_map=tier_map, cost_tracker=cost_tracker)
+
+
+def ai_available() -> bool:
+    """True si hay al menos un provider LLM disponible en algun tier."""
+    try:
+        r = get_router()
+    except Exception:  # noqa: BLE001
+        return False
+    for tier in ("scoring", "generation", "messaging"):
+        try:
+            if r.available_providers(tier):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False

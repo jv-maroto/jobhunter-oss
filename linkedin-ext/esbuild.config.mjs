@@ -7,6 +7,7 @@ const watch = process.argv.includes('--watch');
 const entries = [
   'src/background/service-worker.ts',
   'src/content/linkedin-profile.ts',
+  'src/content/linkedin-profile-import.ts',
   'src/content/linkedin-feed.ts',
   'src/content/linkedin-messaging.ts',
   'src/content/linkedin-post-helper.ts',

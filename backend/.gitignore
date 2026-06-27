@@ -16,3 +16,9 @@ data/applications/
 data/posts/
 data/cache/
 .DS_Store
+
+# Runtime / datos del usuario (no commitear)
+data/.onboarded
+data/onboarding_draft.json
+data/integrations/
+app/data/cv_master_backups/

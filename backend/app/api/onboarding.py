@@ -97,6 +97,22 @@ def post_linkedin_extension(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "fragment": fragment}
 
 
+class LinkedinPasteBody(BaseModel):
+    text: str
+
+
+@router.post("/linkedin/paste")
+def post_linkedin_paste(body: LinkedinPasteBody) -> dict[str, Any]:
+    """Atajo rapido al ZIP: el usuario pega el texto de su perfil y lo estructura la IA."""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="Texto vacio")
+    from app.ai.profile_extractor import structure_cv_text
+
+    fragment = structure_cv_text(body.text, source="linkedin")
+    draft_store.save_fragment("linkedin", fragment)
+    return {"ok": True, "fragment": fragment}
+
+
 @router.post("/merge")
 def post_merge() -> dict[str, Any]:
     fragments = draft_store.get_fragments()
@@ -162,6 +178,41 @@ def post_complete(body: CompleteBody) -> dict[str, Any]:
     detect.mark_onboarded()
     draft_store.clear_draft()
     return {"ok": True, "path": str(path), "onboarded": True}
+
+
+class RolesBody(BaseModel):
+    # Opcional: si se aporta un cv_master, se usa ese; si no, draft -> cv_master.json.
+    cv_master: dict[str, Any] | None = None
+
+
+def _current_cv_for_roles() -> dict[str, Any]:
+    """CV de referencia para sugerir roles: draft fusionado o cv_master.json."""
+    draft = draft_store.load_draft()
+    merged = (draft.get("merged") or {}).get("cv_master") if isinstance(draft, dict) else None
+    if isinstance(merged, dict) and merged:
+        return merged
+    cv_path = settings.cv_master_file
+    if cv_path.exists():
+        try:
+            cur = json.loads(cv_path.read_text(encoding="utf-8"))
+            if isinstance(cur, dict) and "_README" not in cur:
+                return cur
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+@router.post("/roles")
+def post_roles(body: RolesBody | None = None) -> dict[str, Any]:
+    """Sugiere 1-4 roles de trabajo a partir del perfil (IA o heuristica).
+
+    Body opcional: {cv_master?}. Si no se aporta, usa el draft fusionado o el
+    cv_master.json actual. Devuelve {roles: [{id, label, why}]}.
+    """
+    from app.onboarding.roles import suggest_roles
+
+    cv = body.cv_master if (body is not None and body.cv_master) else _current_cv_for_roles()
+    return {"roles": suggest_roles(cv)}
 
 
 @router.post("/reset")

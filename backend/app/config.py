@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     gemini_generation_model: str = Field(default="gemini-2.5-pro")
     ollama_model: str = Field(default="qwen2.5:7b")
 
+    # ---- IA: OpenAI + modo (fase 2) ----
+    openai_api_key: str = Field(default="")
+    openai_scoring_model: str = Field(default="gpt-4o-mini")
+    openai_generation_model: str = Field(default="gpt-4o")
+    # auto: cloud si hay clave -> Ollama local -> nada (scraping basico sin IA).
+    ai_mode: str = Field(default="auto")  # auto | cloud | local | off
+    ai_cloud_provider: str = Field(default="anthropic")  # anthropic | openai | gemini
+    ai_scraping_enabled: bool = Field(default=False)  # queries IA + re-rank de resultados
+
     # DB
     database_url: str = Field(default="sqlite:///./jobhunter.db")
 

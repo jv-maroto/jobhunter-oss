@@ -118,5 +118,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     });
+  },
+
+  // Importa el PROPIO perfil de LinkedIn al onboarding (lectura de tu sesión).
+  importLinkedinProfile(payload: {
+    name?: string;
+    headline?: string;
+    summary?: string;
+    profile_url?: string;
+    skills?: string[];
+    experience?: { role?: string; company?: string }[];
+  }): Promise<{ ok: boolean }> {
+    return jsonFetch<{ ok: boolean }>("/onboarding/linkedin/from-extension", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   }
 };
