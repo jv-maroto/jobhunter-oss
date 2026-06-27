@@ -25,7 +25,7 @@ const daysFromNow = (n: number) => {
   return d;
 };
 
-export const mockJobs: Job[] = [
+const mockJobsRaw = [
   {
     id: 1,
     source: "linkedin",
@@ -221,6 +221,15 @@ export const mockJobs: Job[] = [
   },
 ];
 
+// Los mocks se escribieron antes de añadir track/band/hooks al tipo Job; los
+// rellenamos con defaults para que sigan satisfaciendo Job[] sin tocar cada literal.
+export const mockJobs: Job[] = mockJobsRaw.map((j) => ({
+  track: "dev",
+  predicted_salary_band: "unknown",
+  personalization_hooks: [] as string[],
+  ...j,
+}) as Job);
+
 export const mockPersons: Person[] = [
   {
     id: 1,
@@ -294,6 +303,7 @@ export const mockPosts: Post[] = Array.from({ length: 7 }, (_, i) => {
     image_path: undefined,
     hashtags: ["#Python", "#FastAPI", "#AI", "#OpenToWork"],
     status: i === 0 ? "scheduled" : "draft",
+    kind: "personal",
     scheduled_at: i === 0 ? iso(d) : undefined,
   };
 });

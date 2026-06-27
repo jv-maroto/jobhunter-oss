@@ -164,7 +164,7 @@ function ApplicationCard({
             {STATUS_LABEL[job.status] ?? job.status}
           </Badge>
           <span className="text-muted-foreground">
-            {formatRelative(job.applied_at ?? job.created_at)}
+            {formatRelative(job.applied_at ?? job.posted_at)}
           </span>
         </div>
       </CardHeader>
