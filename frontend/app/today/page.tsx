@@ -3,13 +3,10 @@
 import * as React from "react";
 import {
   Filter,
-  Flame,
   RefreshCcw,
   Sparkles,
   Users,
-  Megaphone,
   Briefcase,
-  Send,
   CircleDollarSign,
   Target,
 } from "lucide-react";
@@ -28,11 +25,9 @@ import {
 } from "@/components/ui/select";
 import { JobsCompactList } from "@/components/jobs/JobsCompactList";
 import { PersonCard } from "@/components/persons/PersonCard";
-import { PostCard } from "@/components/posts/PostCard";
 import { MetricCard } from "@/components/metrics/MetricCard";
 import { useJobs } from "@/hooks/useJobs";
 import { usePersons } from "@/hooks/usePersons";
-import { usePosts } from "@/hooks/usePosts";
 import { useMetricsToday } from "@/hooks/useMetrics";
 import { api } from "@/lib/api";
 import { formatEur } from "@/lib/utils";
@@ -42,23 +37,13 @@ const SOURCES = ["all", "linkedin", "indeed", "remotive", "tecnoempleo"];
 export default function TodayPage() {
   const [minScore, setMinScore] = React.useState(30);
   const [source, setSource] = React.useState<string>("all");
-  const [postLang, setPostLang] = React.useState<"es" | "en">("es");
 
   const jobs = useJobs({
     min_score: minScore,
     source: source === "all" ? undefined : source,
   });
   const persons = usePersons("pending");
-  const posts = usePosts();
   const metrics = useMetricsToday();
-
-  const todayPost = React.useMemo(() => {
-    if (!posts.data) return undefined;
-    const today = new Date().toDateString();
-    return posts.data.find(
-      (p) => new Date(p.date).toDateString() === today,
-    );
-  }, [posts.data]);
 
   const detected = (jobs.data ?? []).filter((j) => j.status === "detected");
   const fresh = detected.slice().sort(
@@ -100,153 +85,6 @@ export default function TodayPage() {
     } catch (e) {
       toast.error("Backend offline — scrape skipped", {
         description: String(e).slice(0, 120),
-      });
-    }
-  };
-
-  const generateWeek = async () => {
-    const toastId = toast.loading("Lanzando generación en background…");
-    try {
-      type StartResp = { status: string; requested?: number };
-      const res = await api<StartResp>("/posts/generate-week", {
-        method: "POST",
-        body: JSON.stringify({
-          theme: "weekly mix",
-          count: 21,
-          language: postLang,
-        }),
-      });
-
-      if (res.status === "already_running") {
-        toast.info("Ya hay una generación en curso — espera al final.", {
-          id: toastId,
-        });
-      } else {
-        toast.loading("Claude está generando los posts…", {
-          id: toastId,
-          description: "Tarda 60-120s. Puedes seguir trabajando.",
-        });
-      }
-
-      // Poll status
-      type Status = {
-        running: boolean;
-        created: number;
-        images_done: number;
-        requested: number;
-        error: string | null;
-      };
-      const pollId = window.setInterval(async () => {
-        try {
-          const s = await api<Status>("/posts/generate-week-status");
-          if (!s.running) {
-            window.clearInterval(pollId);
-            if (s.error) {
-              toast.error("Falló la generación", {
-                id: toastId,
-                description: s.error.slice(0, 200),
-              });
-            } else {
-              toast.success(
-                `${s.created} posts generados · ${s.images_done} imágenes OK`,
-                {
-                  id: toastId,
-                  description: "Ve a /linkedin para revisarlos.",
-                  duration: 8000,
-                },
-              );
-            }
-            posts.refetch();
-          } else {
-            toast.loading(
-              `Generando… ${s.created}/${s.requested} posts · ${s.images_done} imágenes`,
-              { id: toastId },
-            );
-          }
-        } catch {
-          /* keep polling */
-        }
-      }, 4000);
-    } catch (e) {
-      toast.error("No se pudo lanzar la generación", {
-        id: toastId,
-        description: String(e).slice(0, 160),
-      });
-    }
-  };
-
-  const generateTrending = async (opts: { count?: number; replace?: boolean } = {}) => {
-    const count = opts.count ?? 10;
-    const replace = opts.replace ?? false;
-    const label = replace
-      ? `Regenerando trending (borrando drafts antiguos y trayendo ${count} nuevos)…`
-      : `Trayendo top ${count} noticias tech de las últimas 24h…`;
-    const toastId = toast.loading(label);
-    try {
-      type StartResp = { status: string; requested?: number };
-      const res = await api<StartResp>("/posts/generate-trending", {
-        method: "POST",
-        body: JSON.stringify({
-          count,
-          language: postLang,
-          replace_drafts: replace,
-        }),
-      });
-      if (res.status === "already_running") {
-        toast.info("Ya hay un trending en curso — espera al final.", {
-          id: toastId,
-        });
-      } else {
-        toast.loading("Claude está comentando las noticias…", {
-          id: toastId,
-          description: "Tarda 30-90s. Puedes seguir trabajando.",
-        });
-      }
-
-      type Status = {
-        running: boolean;
-        stories_found: number;
-        created: number;
-        images_done: number;
-        requested: number;
-        error: string | null;
-      };
-      const pollId = window.setInterval(async () => {
-        try {
-          const s = await api<Status>("/posts/generate-trending-status");
-          if (!s.running) {
-            window.clearInterval(pollId);
-            if (s.error) {
-              toast.error("Falló trending", {
-                id: toastId,
-                description: s.error.slice(0, 200),
-              });
-            } else {
-              toast.success(
-                `${s.created} posts trending · ${s.images_done} imágenes`,
-                {
-                  id: toastId,
-                  description: `${s.stories_found} noticias HN procesadas. Revísalos en /linkedin.`,
-                  icon: <Flame className="h-4 w-4" />,
-                  duration: 8000,
-                },
-              );
-            }
-            posts.refetch();
-          } else {
-            toast.loading(
-              `Trending… ${s.created}/${s.stories_found || s.requested} posts · ${s.images_done} imgs`,
-              { id: toastId },
-            );
-          }
-        } catch {
-          /* keep polling */
-        }
-      }, 4000);
-    } catch (e) {
-      toast.error("No se pudo lanzar trending", {
-        id: toastId,
-        description: String(e).slice(0, 160),
       });
     }
   };
@@ -440,58 +278,6 @@ export default function TodayPage() {
                 (persons.data ?? []).slice(0, 3).map((p) => (
                   <PersonCard key={p.id} person={p} />
                 ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card variant="glass">
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="inline-flex items-center gap-2">
-                <Megaphone className="h-4 w-4 text-[hsl(var(--accent-2))]" />
-                Post scheduled today
-              </CardTitle>
-              <div className="inline-flex items-center gap-2 flex-wrap">
-                <Select value={postLang} onValueChange={(v) => setPostLang(v as "es" | "en")}>
-                  <SelectTrigger className="h-8 w-[100px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="es">Español</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button size="sm" onClick={generateWeek} shimmer>
-                  <Send />
-                  Generate week
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => generateTrending({ count: 10, replace: false })}
-                >
-                  <Flame className="h-3.5 w-3.5" />
-                  Trending +10
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-pink-500/40 text-pink-300 hover:bg-pink-500/10"
-                  onClick={() => generateTrending({ count: 15, replace: true })}
-                >
-                  <RefreshCcw className="h-3.5 w-3.5" />
-                  Regenerar trending
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {posts.isLoading ? (
-                <Skeleton className="h-32 w-full" />
-              ) : todayPost ? (
-                <PostCard post={todayPost} />
-              ) : (
-                <div className="rounded-lg border border-dashed border-[hsl(var(--border))] p-6 text-center text-xs text-muted-foreground">
-                  No post scheduled for today. Usa los botones de arriba para generar.
-                </div>
               )}
             </CardContent>
           </Card>
