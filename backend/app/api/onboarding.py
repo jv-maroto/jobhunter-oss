@@ -217,9 +217,56 @@ def post_roles(body: RolesBody | None = None) -> dict[str, Any]:
 
 @router.post("/reset")
 def post_reset() -> dict[str, Any]:
-    """Solo dev: borra el draft y el marcador para volver a probar el wizard."""
+    """Vuelve a dejar la instancia como recien instalada, para rehacer el wizard.
+
+    ANTES ESTO NO FUNCIONABA: solo borraba el draft y el marcador, pero
+    `is_onboarded()` mira TAMBIEN cv_master.json y, al tener ya un nombre real,
+    seguia devolviendo True -> el wizard no volvia nunca.
+
+    Ahora ademas archivamos el cv_master actual (con backup timestamped, nunca se
+    pierde) y dejamos una plantilla con `_README`, que es la señal que usa
+    `detect.is_onboarded()` para saber que la instancia esta sin configurar.
+    """
     draft_store.clear_draft()
+
     marker = settings.onboarding_marker_file
     if marker.exists():
         marker.unlink()
-    return {"ok": True}
+
+    backup_path: str | None = None
+    cv_path = settings.cv_master_file
+    if cv_path.exists():
+        backups = cv_path.parent / "cv_master_backups"
+        backups.mkdir(parents=True, exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        dest = backups / f"cv_master_{ts}.json"
+        shutil.copy2(cv_path, dest)
+        backup_path = str(dest)
+        logger.info("onboarding reset: cv_master respaldado en %s", dest)
+
+    cv_path.parent.mkdir(parents=True, exist_ok=True)
+    cv_path.write_text(
+        json.dumps(
+            {
+                "_README": (
+                    "Instancia reseteada: completa el onboarding para regenerar tu "
+                    "perfil. Tu CV anterior esta en app/data/cv_master_backups/."
+                ),
+                "personal": {"name": "", "email": ""},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    # Invalida la cache en memoria del perfil.
+    try:
+        from app.services import load_cv_master
+
+        if hasattr(load_cv_master, "cache_clear"):
+            load_cv_master.cache_clear()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {"ok": True, "onboarded": detect.is_onboarded(), "backup": backup_path}

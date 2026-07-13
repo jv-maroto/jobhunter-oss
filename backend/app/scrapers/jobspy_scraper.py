@@ -33,8 +33,14 @@ SEARCH_QUERIES = [
 class JobspyPlan:
     """Un grupo de busqueda jobspy: sitios + queries + ubicacion.
 
-    `country_indeed=None` y `location=""` => busqueda sin pais (remoto).
+    `location=""` => sin ciudad concreta (busqueda remota).
     Si `sites` incluye "google", se pasa `google_search_term`.
+
+    OJO con `country_indeed`: jobspy lo necesita SIEMPRE para Indeed y, si no se
+    pasa, usa "usa" por defecto. Es decir, una busqueda "solo remoto" sin pais
+    acababa devolviendo ofertas de Estados Unidos. Por eso en las busquedas
+    remotas seguimos mandando un pais base (el del usuario) y activamos
+    `is_remote`, que es el flag que jobspy usa para filtrar remoto de verdad.
     """
 
     sites: list[str]
@@ -43,6 +49,7 @@ class JobspyPlan:
     country_indeed: str | None = "Spain"
     results_wanted: int = 20
     hours_old: int = 24
+    is_remote: bool = False
     extra_tags: list[str] = field(default_factory=list)
 
 
@@ -95,6 +102,8 @@ class JobspyScraper(BaseScraper):
                 }
                 if plan.country_indeed:
                     kwargs["country_indeed"] = plan.country_indeed
+                if plan.is_remote:
+                    kwargs["is_remote"] = True
                 if "google" in plan.sites:
                     kwargs["google_search_term"] = query
                 try:

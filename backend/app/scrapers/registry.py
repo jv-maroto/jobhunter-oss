@@ -104,8 +104,39 @@ def active_platforms(prefs: dict, regions: list[str]) -> list[dict]:
     ]
 
 
+def _home_country(cv: dict | None, regions: list[str]) -> str:
+    """Pais base para las busquedas remotas de Indeed (jobspy siempre exige uno).
+
+    Devuelve SIEMPRE un nombre que jobspy entienda (via `country_map`), nunca
+    texto libre del CV: `personal.location` es tipo "Tacoronte, Tenerife (España)"
+    y pasarle eso a jobspy no resuelve a ningun pais.
+
+    Prioridad: region-pais elegida > preferred_countries > pais del CV > España.
+    """
+    candidates: list[str] = [r for r in regions if r != "REMOTE"]
+
+    prefs = ((cv or {}).get("search_preferences") or {})
+    candidates += [c for c in (prefs.get("preferred_countries") or []) if isinstance(c, str)]
+
+    # Ultimo recurso: buscar un codigo/nombre de pais dentro de `personal.location`.
+    loc = (((cv or {}).get("personal") or {}).get("location") or "").lower()
+    if "españa" in loc or "spain" in loc:
+        candidates.append("ES")
+
+    for c in candidates:
+        params = jobspy_params_for(c.strip().upper())
+        if params and params.get("country_indeed"):
+            return params["country_indeed"]
+
+    return "Spain"
+
+
 def build_jobspy_plans(
-    regions: list[str], queries: list[str], sites: list[str], prefs: dict
+    regions: list[str],
+    queries: list[str],
+    sites: list[str],
+    prefs: dict,
+    home_country: str = "Spain",
 ) -> list[JobspyPlan]:
     results = int(prefs.get("results_per_query", 20) or 20)
     hours = int(prefs.get("hours_old", 72) or 72)
@@ -135,8 +166,11 @@ def build_jobspy_plans(
             )
         )
 
-    # Solo remoto (sin pais concreto): glassdoor exige pais, lo excluimos.
-    if remote and not plans:
+    # Busqueda remota. Glassdoor exige pais y ciudad, asi que lo excluimos aqui.
+    # Indeed SI se queda: le pasamos el pais base del usuario + is_remote=True.
+    # (Antes se mandaba country_indeed=None y jobspy caia a "usa" por defecto:
+    # una busqueda "remoto worldwide" acababa trayendo ofertas de EE.UU.)
+    if remote:
         rsites = [s for s in sites if s != "glassdoor"]
         if rsites:
             plans.append(
@@ -144,9 +178,10 @@ def build_jobspy_plans(
                     sites=rsites,
                     queries=queries,
                     location="",
-                    country_indeed=None,
+                    country_indeed=home_country,
                     results_wanted=results,
                     hours_old=hours,
+                    is_remote=True,
                 )
             )
     return plans
@@ -182,7 +217,9 @@ def build_active_scrapers(cv: dict | None, prefs: dict | None) -> list[BaseScrap
         }
     )
     if jobspy_sites and queries:
-        plans = build_jobspy_plans(regions, queries, jobspy_sites, prefs)
+        plans = build_jobspy_plans(
+            regions, queries, jobspy_sites, prefs, home_country=_home_country(cv, regions)
+        )
         if plans:
             instances.append(JobspyScraper(plans))
 

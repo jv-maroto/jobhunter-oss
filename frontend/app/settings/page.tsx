@@ -3,13 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { Save, Bot, Palette, FileJson } from "lucide-react";
+import { Save, Bot, Palette, FileJson, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
+import { onboardingApi } from "@/lib/onboarding";
 
 // Shown only if the backend can't load cv_master.json (first-time setup).
 // Edit this through the UI below, or directly in backend/app/data/cv_master.json.
@@ -163,6 +164,73 @@ export default function SettingsPage() {
           />
         </CardContent>
       </Card>
+
+      <RedoOnboardingCard />
     </div>
+  );
+}
+
+/**
+ * Rehacer el onboarding. El endpoint /onboarding/reset existia y estaba incluso
+ * cableado en lib/onboarding.ts, pero NINGUN boton lo llamaba: una vez
+ * completado el wizard no habia forma de volver a lanzarlo desde la interfaz.
+ */
+function RedoOnboardingCard() {
+  const [busy, setBusy] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+
+  const redo = async () => {
+    setBusy(true);
+    try {
+      const res = await onboardingApi.reset();
+      toast.success("Onboarding reiniciado", {
+        description: "Se hizo copia de tu cv_master en app/data/cv_master_backups/.",
+      });
+      // El OnboardingGate ve onboarded:false y redirige al wizard.
+      window.location.href = "/onboarding";
+      return res;
+    } catch (e) {
+      toast.error("No se pudo reiniciar el onboarding", {
+        description: String(e).slice(0, 120),
+      });
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card variant="glass">
+      <CardHeader>
+        <CardTitle className="inline-flex items-center gap-2">
+          <RotateCcw className="h-4 w-4 text-[hsl(var(--accent-1))]" />
+          Rehacer onboarding
+        </CardTitle>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Vuelve a lanzar el asistente para reconstruir tu perfil desde el CV,
+          GitHub o LinkedIn. Tu <code className="mono">cv_master.json</code> actual
+          se guarda como copia de seguridad antes de reiniciar.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {confirming ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={redo} disabled={busy} variant="destructive">
+              {busy ? "Reiniciando…" : "Sí, reiniciar y abrir el asistente"}
+            </Button>
+            <Button
+              onClick={() => setConfirming(false)}
+              disabled={busy}
+              variant="ghost"
+            >
+              Cancelar
+            </Button>
+          </div>
+        ) : (
+          <Button onClick={() => setConfirming(true)} variant="outline">
+            <RotateCcw className="mr-2 h-3.5 w-3.5" />
+            Rehacer onboarding
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

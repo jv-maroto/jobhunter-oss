@@ -40,7 +40,8 @@
         "PL",
         "DK",
         "NO",
-        "FI"
+        "FI",
+        "REMOTE"
       ],
       "languages": [
         "en"
@@ -52,7 +53,7 @@
       "tos_risk": "medium",
       "enabled_by_default": true,
       "requires_env": null,
-      "notes": "country_indeed por pais.",
+      "notes": "Via jobspy. En busquedas remotas usa tu pais base + filtro is_remote.",
       "implemented": true,
       "status": "available"
     },
