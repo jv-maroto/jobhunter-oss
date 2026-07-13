@@ -23,6 +23,15 @@ dist/
 .env.local
 .env.*.local
 
+# Perfil personal: tu CV NO se versiona. El repo solo trae la plantilla
+# `cv_master.example.json`; en el primer arranque se copia a `cv_master.json`
+# y el onboarding la rellena con tus datos, que se quedan en tu maquina.
+backend/app/data/cv_master.json
+backend/app/data/cv_master_backups/
+backend/data/.onboarded
+backend/data/onboarding_draft.json
+backend/data/integrations/
+
 # Data generated
 backend/data/applications/
 backend/data/posts/
@@ -40,3 +49,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Capturas/notas locales
+Captura*.png

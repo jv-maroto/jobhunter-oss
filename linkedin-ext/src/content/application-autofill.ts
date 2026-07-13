@@ -125,8 +125,9 @@ const RULES: FieldRule[] = [
     ],
   },
 
-  // ===== Minimum N years experience — answer Yes if N <= 4 =====
-  // (4 years at Sagrera). The exact comparison happens at fill time.
+  // ===== Minimum N years experience — answer Yes if N <= your years =====
+  // Your years of experience come from cv_master.json; the exact comparison
+  // happens at fill time.
   {
     key: "__answer_yes__",
     priority: 910,

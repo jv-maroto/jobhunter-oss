@@ -1,7 +1,9 @@
-"""Scraper específico para ofertas sysadmin/devops/sre via jobspy.
+"""Scraper de ofertas sysadmin/devops/sre via jobspy, con queries fijas.
 
-Queries diseñadas para maximizar señal de alto sueldo aprovechando los
-4 años de experiencia SysAdmin + CCNA + ASIR + WinSvalinn. Prioriza remoto.
+SOLO se usa en modo legacy (instalacion sin onboarding completado). Una vez
+tienes perfil, `query_builder` genera las busquedas a partir de TUS roles y
+skills, que es lo que quieres: estas queries son un punto de partida generico,
+no un perfil concreto.
 """
 
 from __future__ import annotations

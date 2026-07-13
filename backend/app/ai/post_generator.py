@@ -22,12 +22,15 @@ Recibes:
 - count: numero de posts (puede ser hasta 21 = 3 por dia x 7 dias).
 - language: "es" o "en".
 
-Mezcla obligatoria de areas (distribuye ~equilibradamente entre count posts):
-- Python / FastAPI / backend patterns
-- AI aplicada (LLMs locales con Ollama, embeddings, Whisper, YOLO)
-- Sysadmin / DevOps (Linux scripts, Bash, Docker, monitorizacion, backups, Active Directory, Windows Server, networking L2/CCNA, hardening CIS)
-- Frontend (React, TypeScript, Tailwind v4, Vite)
-- Behind-the-scenes de proyectos reales del autor (usa `profile.projects_highlight` o `profile.experience` como fuente; si no hay datos, omite esta categoría)
+Mezcla de areas (distribuye ~equilibradamente entre count posts). IMPORTANTE:
+las areas tecnicas SIEMPRE salen del perfil del autor (`profile.skills`,
+`profile.experience`, `profile.projects_highlight`). NO inventes un stack ni
+asumas tecnologias que no aparezcan en `profile`:
+- Su area principal de backend/datos, segun `profile.skills`
+- Su area de infra/devops, si la tiene
+- Su area de frontend, si la tiene
+- Behind-the-scenes de proyectos reales del autor (usa `profile.projects_highlight`
+  o `profile.experience` como fuente; si no hay datos, omite esta categoría)
 - Lessons learned de incidencias reales (down, datos perdidos, deploys malos, debugging)
 - Carrera y aprendizaje continuo (transiciones, certificaciones, estudios)
 

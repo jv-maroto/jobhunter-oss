@@ -21,6 +21,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from app.ai import profile_context
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,8 @@ def _detect_category(content: str, category: str | None = None) -> str:
         return "frontend"
     if any(k in text for k in ["fastapi", "django", "celery", "pydantic", "sqlalchemy"]):
         return "python"
-    if any(k in text for k in ["sportevent", "fitdash", "winsvalinn", "cinestream", "jobhunter", "raspberry"]):
+    projects = profile_context.project_keywords()
+    if projects and any(k in text for k in projects):
         return "project"
     if any(k in text for k in ["entrevista", "carrera", "transición", "aprendí", "lección"]):
         return "career"
@@ -396,14 +398,9 @@ SERVICES_BY_CAT: dict[str, list[dict[str, str]]] = {
         {"name": "FastAPI", "color": "#009688"},
         {"name": "React", "color": "#61dafb"},
     ],
-    "career": [
-        {"name": "Sagrera", "color": "#cc785c"},
-        {"name": "DAW", "color": "#22d3ee"},
-        {"name": "ASIR", "color": "#a3e635"},
-        {"name": "CCNA", "color": "#1ba0d7"},
-        {"name": "Python", "color": "#3776ab"},
-        {"name": "React", "color": "#61dafb"},
-    ],
+    # "career" se rellena en tiempo de ejecucion desde el perfil del usuario
+    # (profile_context.career_badges()); no se hardcodean titulaciones de nadie.
+    "career": [],
 }
 
 
@@ -446,7 +443,11 @@ def _build_html(topic: str, content: str, category: str) -> str:
     code = _detect_code(content) or _build_synthetic_snippet(content, lang)
     code_html = _highlight(code, lang)
 
-    services = SERVICES_BY_CAT.get(category, SERVICES_BY_CAT["project"])
+    if category == "career":
+        # Titulaciones/certificaciones del usuario, no las del autor original.
+        services = profile_context.career_badges()
+    else:
+        services = SERVICES_BY_CAT.get(category, SERVICES_BY_CAT["project"])
     services_html = "".join(
         f'<div class="svc" style="--c:{s["color"]}">'
         f'<span class="svc-dot"></span><span class="svc-name">{escape(s["name"])}</span></div>'

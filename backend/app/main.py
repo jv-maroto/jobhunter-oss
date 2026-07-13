@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -35,11 +36,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def bootstrap_cv_master() -> None:
+    """En un clon recien hecho no existe `cv_master.json` (esta gitignoreado a
+    proposito: es tu perfil, no debe versionarse). Lo creamos a partir de
+    `cv_master.example.json`, que si viene en el repo.
+
+    La plantilla lleva `_README`, que es la señal que usa `detect.is_onboarded()`
+    para saber que la instancia esta sin configurar -> se lanza el wizard.
+    """
+    target = settings.cv_master_file
+    if target.exists():
+        return
+    example = target.with_name("cv_master.example.json")
+    if not example.exists():
+        logger.warning("no hay cv_master.json ni cv_master.example.json en %s", target.parent)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(example, target)
+    logger.info("primer arranque: cv_master.json creado desde la plantilla. Completa el onboarding.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("startup: init_db()")
     init_db()
     settings.data_path  # asegura dirs
+    bootstrap_cv_master()
 
     # Inicializar router LLM (multi-provider con fallback)
     try:

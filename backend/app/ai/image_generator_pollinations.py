@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app.ai import profile_context
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,8 @@ def _detect_category(content: str, category: str | None = None) -> str:
         return "frontend"
     if any(k in text for k in ["fastapi", "django", "celery", "pydantic"]):
         return "python"
-    if any(k in text for k in ["sportevent", "fitdash", "winsvalinn", "cinestream", "jobhunter"]):
+    projects = profile_context.project_keywords()
+    if projects and any(k in text for k in projects):
         return "project"
     if any(k in text for k in ["entrevista", "carrera", "transición", "aprendí", "lección"]):
         return "career"

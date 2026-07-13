@@ -17,6 +17,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from app.ai import profile_context
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,8 @@ def _detect_category(content: str, category: str | None = None) -> str:
         return "frontend"
     if any(k in text for k in ["fastapi", "django", "python", "celery", "pydantic", "sqlalchemy"]):
         return "python"
-    if any(k in text for k in ["sportevent", "fitdash", "winsvalinn", "cinestream", "jobhunter", "raspberry"]):
+    projects = profile_context.project_keywords()
+    if projects and any(k in text for k in projects):
         return "project"
     if any(k in text for k in ["entrevista", "carrera", "transición", "aprendí", "lecciones"]):
         return "career"
@@ -586,7 +588,7 @@ def _render_terminal(
         cy = win_y + bar_h // 2
         tdraw.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=c)
     tab_font = _mono(11)
-    tab_label = "javier@sagrera ~ "
+    tab_label = profile_context.terminal_label()
     tw, _ = _measure_text(tab_font, tab_label)
     tdraw.text(
         (win_x + win_w // 2 - tw // 2, win_y + bar_h // 2 - 6),

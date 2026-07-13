@@ -25,28 +25,46 @@ posts and comments in your voice — all running on your own machine.
 
 ## Quick start
 
+Requires **Python 3.12–3.14** and **Node 20+**.
+
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_HANDLE/jobhunter.git
-cd jobhunter
+git clone https://github.com/jv-maroto/jobhunter-oss.git
+cd jobhunter-oss
 
 # 2. Backend
 cd backend
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e .
-cp .env.example .env           # then edit .env and add your ANTHROPIC_API_KEY
-uvicorn app.main:app --reload --port 8000
+python3.12 -m venv .venv
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
+pip install -e ".[onboarding]"      # the extra adds CV parsing (PDF/DOCX)
+cp .env.example .env                # optional: add an LLM key (see below)
+uvicorn app.main:app --reload --reload-include "*.json" --port 8000
 
 # 3. Frontend (in a separate terminal)
 cd frontend
 npm install
-cp .env.local.example .env.local
-npm run dev                    # opens http://localhost:3000
+cp .env.local.example .env.local     # optional; defaults to localhost:8000
+npm run dev                          # http://localhost:3000
 ```
 
-Open `http://localhost:3000`, go to **Settings**, and paste your CV data
-(`backend/app/data/cv_master.json` has a starter template).
+Open `http://localhost:3000`. On a fresh install the **onboarding wizard**
+launches automatically: it builds your profile from your CV (PDF/DOCX), your
+GitHub and/or your LinkedIn export, lets you pick countries and job boards, and
+writes `backend/app/data/cv_master.json`.
+
+> **Your profile never leaves your machine.** `cv_master.json` is gitignored —
+> the repo only ships `cv_master.example.json`, which is copied on first run.
+> You can re-run the wizard any time from **Settings → Rehacer onboarding**
+> (your current profile is backed up first).
+
+### Do I need an API key?
+
+No. In the wizard's first step you can choose:
+
+- **Local AI (free)** — [Ollama](https://ollama.com) running on your machine.
+- **Cloud AI** — Anthropic / OpenAI / Gemini. Paste the key in the wizard or set
+  it in `.env`.
+- **No AI** — scraping and the Kanban still work; scoring and CV generation don't.
 
 ### Optional: Chrome extension
 
@@ -104,12 +122,38 @@ Key sections:
   (`experience`, `frontend_showcase`, `backend_showcase`, `production_system_story`,
   `cover_letter`). The Chrome extension auto-fills these into textareas.
 
-### Scrapers
-By default the system scrapes for full-stack and sysadmin/devops roles in
-Spain via jobspy. To customize:
-- Edit `backend/app/scrapers/jobspy_scraper.py:SEARCH_QUERIES` for dev queries
-- Edit `backend/app/scrapers/sysadmin_scraper.py:SYSADMIN_QUERIES` for ops queries
-- Edit `backend/app/scrapers/hacker_news.py:TECH_KEYWORDS` to filter trending news
+### Job boards
+
+You pick countries and boards in the wizard (or later in **Settings → Search**).
+Search queries are derived from your own roles and skills — nothing is hardcoded
+to one person's profile.
+
+**Working today (12):**
+
+| Board | Coverage | Needs a key? |
+|---|---|---|
+| LinkedIn, Indeed, Glassdoor, Google Jobs | EU + remote (via [jobspy](https://github.com/Bunsly/JobSpy)) | no |
+| Remotive, We Work Remotely | remote | no |
+| **HN "Who is hiring"** | remote (monthly thread, Algolia API) | no |
+| **Arbeitnow** | DE/AT/NL + remote | no |
+| Tecnoempleo | ES | no |
+| Platsbanken | SE | no |
+| **Adzuna** | ES, GB, DE, FR, NL, IT, PT, SE… | yes — **free** at [developer.adzuna.com](https://developer.adzuna.com) |
+
+Adzuna gives the best per-country coverage; set `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`
+in `.env`. Without the key it disables itself instead of silently returning nothing.
+
+**Declared but not implemented yet** (StepStone, WTTJ, APEC, Reed, France Travail,
+Bundesagentur, TheHub, Nationale Vacaturebank): these show up **greyed out** in the
+UI with a "no scraper" badge. They are never silently enabled. PRs welcome — add a
+class to `app/scrapers/`, register it in `registry.py:SCRAPER_BY_ID`, and set
+`scraper_class` in `platforms.json`.
+
+### Cost control
+
+Every newly scraped job costs one LLM call to score. A wide scrape is easily 400+
+jobs, so `MAX_SCORED_JOBS_PER_RUN` (default 150) caps it. Jobs beyond the cap are
+still saved — they're just scored on a later run.
 
 ### LLM providers
 The router supports Anthropic + Gemini + Ollama with automatic fallback.
