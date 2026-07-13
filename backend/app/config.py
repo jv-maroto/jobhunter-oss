@@ -108,12 +108,26 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173")
+    # ID de la extensión Chrome de JobHunter. Si se define, solo esa extensión
+    # puede llamar a la API (recomendado). Si se deja vacío, se permite cualquier
+    # chrome-extension:// — cómodo para desarrollo pero deja que otras extensiones
+    # instaladas en el navegador lean la API local.
+    chrome_extension_id: str = Field(default="")
 
     @property
     def cors_origin_list(self) -> list[str]:
         base = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-        # Permite tambien la extension Chrome via regex aparte en main.py
+        # Si hay un extension ID configurado, se añade su origen exacto aquí y
+        # se desactiva el regex comodín en main.py.
+        ext_id = self.chrome_extension_id.strip()
+        if ext_id:
+            base.append(f"chrome-extension://{ext_id}")
         return base
+
+    @property
+    def cors_extension_regex(self) -> str | None:
+        """Regex de origen para la extensión, o None si hay un ID exacto fijado."""
+        return None if self.chrome_extension_id.strip() else r"chrome-extension://.*"
 
     @property
     def data_path(self) -> Path:

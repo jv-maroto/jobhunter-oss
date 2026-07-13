@@ -144,6 +144,8 @@ export interface ApiCosts {
   total_month_eur: number;
   by_provider: ApiCostBreakdown[];
   recent_calls: ApiCostCall[];
+  /** Coste diario (últimos 30 días) para el sparkline. */
+  daily: { d: string; v: number }[];
 }
 
 export const JOB_STATUSES: JobStatus[] = [

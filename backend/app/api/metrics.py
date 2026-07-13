@@ -79,14 +79,26 @@ def today_metrics(db: Session = Depends(get_db)) -> MetricsToday:
     )
 
 
+# Máximo de tarjetas por columna del Kanban. Evita traer toda la tabla pero
+# aplica el límite POR estado, así ninguna columna desaparece cuando hay
+# muchos jobs (antes un límite global de 500 ordenado por score borraba los
+# jobs de baja puntuación ya movidos a applied/rejected/etc.).
+_MAX_PER_STATUS = 300
+
+
 @router.get("/pipeline", response_model=MetricsPipeline)
 def pipeline_metrics(db: Session = Depends(get_db)) -> MetricsPipeline:
     statuses = ["detected", "prepared", "applied", "interviewing", "offer", "rejected", "ghosted"]
     bucket: dict[str, list[JobOut]] = {s: [] for s in statuses}
 
-    jobs = db.execute(select(Job).order_by(desc(Job.match_score)).limit(500)).scalars().all()
-    for j in jobs:
-        bucket.setdefault(j.status, []).append(JobOut.model_validate(j))
+    for status in statuses:
+        jobs = db.execute(
+            select(Job)
+            .where(Job.status == status)
+            .order_by(desc(Job.match_score))
+            .limit(_MAX_PER_STATUS)
+        ).scalars().all()
+        bucket[status] = [JobOut.model_validate(j) for j in jobs]
     return MetricsPipeline(pipeline=bucket)
 
 
@@ -101,11 +113,22 @@ def companies_metrics(db: Session = Depends(get_db)) -> MetricsCompanies:
         )
     ).all()
 
+    names = [name for name, _count, _avg in rows]
+
+    # Un único SELECT para todos los jobs de esas empresas (ordenado por score);
+    # elegimos el mejor por empresa en memoria en vez de 1 query por empresa (N+1).
+    best_by_company: dict[str, Job] = {}
+    if names:
+        candidates = db.execute(
+            select(Job).where(Job.company.in_(names)).order_by(desc(Job.match_score))
+        ).scalars().all()
+        for j in candidates:
+            if j.company not in best_by_company:
+                best_by_company[j.company] = j
+
     out: list[CompanyMetric] = []
     for name, count, avg in rows:
-        best = db.execute(
-            select(Job).where(Job.company == name).order_by(desc(Job.match_score)).limit(1)
-        ).scalar_one_or_none()
+        best = best_by_company.get(name)
         out.append(
             CompanyMetric(
                 name=name,

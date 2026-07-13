@@ -130,7 +130,11 @@ export type RuntimeMessage =
   | { type: "READ_INBOX"; task: ReadInboxTask }
   | { type: "SUGGEST_COMMENTS"; task: SuggestCommentsTask }
   | { type: "PING_STATUS" }
-  | { type: "FORCE_POLL" };
+  | { type: "FORCE_POLL" }
+  | { type: "GET_PROFILE" }
+  | { type: "GENERATE_COMMENT_FOR_POST"; payload?: unknown }
+  | { type: "SEND_FEED_POSTS"; posts?: unknown[] }
+  | { type: "DEBUG_SCAN_FEED" };
 
 export interface RuntimeResponse {
   success: boolean;

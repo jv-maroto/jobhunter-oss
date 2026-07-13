@@ -23,13 +23,8 @@ export function usePersons(status?: PersonStatus) {
 export function useMarkPersonSent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: number) => {
-      try {
-        return await api(`/persons/${id}/mark-sent`, { method: "POST" });
-      } catch {
-        return { ok: true };
-      }
-    },
+    mutationFn: async (id: number) =>
+      api(`/persons/${id}/mark-sent`, { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["persons"] });
     },

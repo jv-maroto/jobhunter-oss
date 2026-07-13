@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -114,7 +115,9 @@ class LLMRouter:
             if provider is None:
                 logger.debug("LLM[%s] slot %s: provider no registrado, skip", tier, slot)
                 continue
-            if not provider.is_available():
+            # is_available() puede hacer I/O de red síncrono (p.ej. Ollama);
+            # lo ejecutamos en un hilo para no bloquear el event loop.
+            if not await asyncio.to_thread(provider.is_available):
                 logger.info("LLM[%s] slot %s: %s no disponible, skip", tier, slot, provider.name)
                 continue
 

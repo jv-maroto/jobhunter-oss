@@ -20,6 +20,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "tenacity>=9.0",
     "python-dateutil>=2.9",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]

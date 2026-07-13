@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from app.ai.image_generator import generate_post_image as generate_post_image_pillow
 from app.ai.image_generator_html import generate_post_image_html
-from app.ai.image_generator_pollinations import generate_post_image_pollinations
 from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
 from app.scrapers.article_summary import fetch_summaries
 from app.scrapers.hacker_news import fetch_top_hn_24h

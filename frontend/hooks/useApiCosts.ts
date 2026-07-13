@@ -84,11 +84,20 @@ function adapt(
     }
   }
 
+  const daily = (monthResp.by_day ?? []).map((row) => {
+    const d = new Date(row.key);
+    const label = Number.isNaN(d.getTime())
+      ? row.key
+      : d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+    return { d: label, v: Number(row.cost_eur.toFixed(4)) };
+  });
+
   return {
     total_today_eur: todayResp.total_cost_eur ?? 0,
     total_month_eur: monthResp.total_cost_eur ?? 0,
     by_provider: Array.from(providersMap.values()),
     recent_calls: [],
+    daily,
   };
 }
 
@@ -97,12 +106,14 @@ export function useApiCosts() {
     queryKey: ["api-costs"],
     queryFn: async () => {
       try {
-        const today = await api<BackendApiCostsResponse>(
-          `/metrics/api-costs?since=${encodeURIComponent(isoStartOfToday())}`,
-        );
-        const month = await api<BackendApiCostsResponse>(
-          `/metrics/api-costs?since=${encodeURIComponent(isoStartOfMonth())}`,
-        );
+        const [today, month] = await Promise.all([
+          api<BackendApiCostsResponse>(
+            `/metrics/api-costs?since=${encodeURIComponent(isoStartOfToday())}`,
+          ),
+          api<BackendApiCostsResponse>(
+            `/metrics/api-costs?since=${encodeURIComponent(isoStartOfMonth())}`,
+          ),
+        ]);
         return adapt(today, month);
       } catch {
         return mockApiCosts;

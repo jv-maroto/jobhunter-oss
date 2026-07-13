@@ -68,6 +68,8 @@ export function KanbanBoard({ initial }: { initial: Record<JobStatus, Job[]> }) 
     const job = findJob(jobId);
     if (!job) return;
 
+    // Snapshot para poder revertir si el backend rechaza el cambio.
+    const snapshot = columns;
     setColumns((prev) => {
       const next = { ...prev };
       next[sourceStatus] = next[sourceStatus].filter((j) => j.id !== jobId);
@@ -79,6 +81,7 @@ export function KanbanBoard({ initial }: { initial: Record<JobStatus, Job[]> }) 
       await update.mutateAsync({ id: jobId, status: targetStatus });
       toast.success(`Moved to ${targetStatus}`);
     } catch {
+      setColumns(snapshot);
       toast.error("Failed to update status");
     }
   };

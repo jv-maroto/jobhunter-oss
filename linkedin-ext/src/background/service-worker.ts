@@ -41,7 +41,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener(
-  (msg: RuntimeMessage | { type: "GET_PROFILE" }, _sender, sendResponse) => {
+  (msg: RuntimeMessage, _sender, sendResponse) => {
     (async () => {
       try {
         if (msg.type === "PING_STATUS") {
@@ -92,9 +92,7 @@ chrome.runtime.onMessage.addListener(
             const res = await fetch(`${base}/comments/manual-post`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(
-                (msg as { payload?: unknown }).payload ?? {}
-              )
+              body: JSON.stringify(msg.payload ?? {})
             });
             if (!res.ok) {
               const txt = await res.text().catch(() => "");
@@ -117,7 +115,7 @@ chrome.runtime.onMessage.addListener(
         if (msg.type === "SEND_FEED_POSTS") {
           const settings = await getSettings();
           const base = settings.backend_url.replace(/\/+$/, "");
-          const payload = { posts: (msg as { posts?: unknown[] }).posts ?? [] };
+          const payload = { posts: msg.posts ?? [] };
           try {
             const res = await fetch(`${base}/comments/feed-posts`, {
               method: "POST",
@@ -166,7 +164,23 @@ async function scheduleAlarm(): Promise<void> {
   log.info(`alarm scheduled every ${periodMinutes.toFixed(2)} min`);
 }
 
-async function pollTick(): Promise<void> {
+// Serializa los ticks dentro del mismo service worker. Sin esto, la alarma y
+// un FORCE_POLL del popup pueden solaparse: ambos leen el mismo set "procesado"
+// antes de que el otro lo guarde y ejecutan la misma tarea dos veces (p.ej.
+// enviar la misma nota de conexión / publicar el mismo post por duplicado).
+let pollLock: Promise<void> = Promise.resolve();
+
+function pollTick(): Promise<void> {
+  const next = pollLock.then(pollTickInner, pollTickInner);
+  // El lock nunca queda "rechazado" para no romper los ticks siguientes.
+  pollLock = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+async function pollTickInner(): Promise<void> {
   const settings = await getSettings();
   if (!settings.auto_execute) {
     log.debug("auto_execute=false, skip tick");

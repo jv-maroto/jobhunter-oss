@@ -24,7 +24,7 @@ def _company_slug(name: str | None, job_id: int) -> str:
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.ai.cover_letter import generate_cover_letter
@@ -65,9 +65,11 @@ def list_jobs(
     if track:
         stmt = stmt.where(Job.track == track)
 
-    total = db.execute(stmt).all()
+    total = db.execute(
+        select(func.count()).select_from(stmt.order_by(None).subquery())
+    ).scalar() or 0
     items = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
-    return JobsListOut(total=len(total), items=[JobOut.model_validate(j) for j in items])
+    return JobsListOut(total=int(total), items=[JobOut.model_validate(j) for j in items])
 
 
 @router.get("/swipe", response_model=list[JobOut])
@@ -250,7 +252,7 @@ def get_cv(job_id: int, db: Session = Depends(get_db)):
     path = Path(job.cv_path)
     if not path.exists():
         raise HTTPException(status_code=410, detail=f"CV file missing on disk: {path}")
-    safe_name = f"cv_{job.company or 'job'}_{job.id}.pdf".replace("/", "_")
+    safe_name = f"cv_{_company_slug(job.company, job.id)}.pdf"
     return FileResponse(
         path,
         media_type="application/pdf",
@@ -267,7 +269,7 @@ def get_cover_letter(job_id: int, db: Session = Depends(get_db)):
     path = Path(job.cover_letter_path)
     if not path.exists():
         raise HTTPException(status_code=410, detail=f"Cover file missing on disk: {path}")
-    safe_name = f"cover_{job.company or 'job'}_{job.id}.pdf".replace("/", "_")
+    safe_name = f"cover_{_company_slug(job.company, job.id)}.pdf"
     return FileResponse(
         path,
         media_type="application/pdf",

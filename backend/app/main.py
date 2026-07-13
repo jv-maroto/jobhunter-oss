@@ -72,10 +72,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if settings.cors_extension_regex is None:
+    logger.info("CORS: extensión Chrome restringida a chrome_extension_id configurado")
+else:
+    logger.warning(
+        "CORS: se permite cualquier chrome-extension:// (fija CHROME_EXTENSION_ID "
+        "en .env para restringir a tu extensión)"
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=r"chrome-extension://.*",
+    allow_origin_regex=settings.cors_extension_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

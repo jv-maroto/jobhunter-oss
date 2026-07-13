@@ -862,6 +862,17 @@ function mountOverlay(onFill: () => Promise<AutoFillResult>): void {
 const IS_TOP = window === window.top;
 const ORIGIN_TAG = `[JobHunter][${IS_TOP ? "top" : "iframe"}][${location.host}]`;
 
+// Solo aceptamos disparadores de autofill entre frames si el frame padre está
+// en un origen ATS/JobHunter conocido. Sin esto, una web atacante podría
+// embeber un formulario de solicitud real en un <iframe> y hacerle postMessage
+// para rellenar en silencio los datos personales de la víctima (clickjacking).
+const TRUSTED_ORIGIN_RE =
+  /^https:\/\/([a-z0-9-]+\.)*(linkedin\.com|wellfound\.com|angel\.co|lever\.co|greenhouse\.io|ashbyhq\.com|workable\.com|welcometothejungle\.com|otta\.com|teamtailor\.com|smartrecruiters\.com|recruitee\.com|jazz\.co|jazzhr\.com|personio\.(com|de)|myworkdayjobs\.com|icims\.com|bamboohr\.com|breezy\.hr|factorialhr\.com|pinpointhq\.com|indeed\.com|talentclue\.com)$/i;
+
+function isTrustedFrameOrigin(origin: string): boolean {
+  return TRUSTED_ORIGIN_RE.test(origin);
+}
+
 let mounted = false;
 async function mount(): Promise<void> {
   if (mounted) return;
@@ -894,13 +905,21 @@ async function mount(): Promise<void> {
   // they can run autoFillForm() inside their own DOM on demand.
   if (!IS_TOP) {
     window.addEventListener("message", async (ev) => {
-      if (ev.data?.__jobhunter_request === "autofill") {
-        const result = await autoFillForm(profile);
-        window.parent?.postMessage(
-          { __jobhunter_response: "autofill", result, origin: location.host },
-          "*",
+      if (ev.data?.__jobhunter_request !== "autofill") return;
+      // Solo el frame padre directo, y solo desde un origen ATS de confianza.
+      if (ev.source !== window.parent) return;
+      if (!isTrustedFrameOrigin(ev.origin)) {
+        console.warn(
+          `${ORIGIN_TAG} ignored autofill request from untrusted origin: ${ev.origin}`,
         );
+        return;
       }
+      const result = await autoFillForm(profile);
+      // Responde solo al origen que lo pidió, no a "*".
+      (ev.source as Window).postMessage(
+        { __jobhunter_response: "autofill", result, origin: location.host },
+        ev.origin,
+      );
     });
     console.log(`${ORIGIN_TAG} listener registered (iframe mode)`);
     mounted = true;
@@ -918,6 +937,8 @@ async function mount(): Promise<void> {
           (resolve) => {
             const timer = setTimeout(() => resolve(null), 1500);
             const handler = (ev: MessageEvent) => {
+              // Solo acepta la respuesta del iframe concreto al que preguntamos.
+              if (ev.source !== f.contentWindow) return;
               if (ev.data?.__jobhunter_response === "autofill") {
                 clearTimeout(timer);
                 window.removeEventListener("message", handler);

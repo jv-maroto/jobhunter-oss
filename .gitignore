@@ -29,6 +29,9 @@ backend/data/posts/
 backend/data/cache/
 backend/jobhunter.db
 backend/jobhunter.db-journal
+# Sidecars del modo WAL de SQLite
+backend/jobhunter.db-wal
+backend/jobhunter.db-shm
 
 # OS
 .DS_Store

@@ -31,21 +31,61 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCompanies, useMetricsToday, usePipeline } from "@/hooks/useMetrics";
 import { useJobs } from "@/hooks/useJobs";
+import { usePersons } from "@/hooks/usePersons";
 import { useApiCosts } from "@/hooks/useApiCosts";
 import { useHasPaidApi } from "@/hooks/useAiSettings";
-import {
-  mockAppsBySource,
-  mockJobsPerDay,
-  mockApiCostsPerDay,
-} from "@/lib/mock";
-import { JOB_STATUSES } from "@/lib/types";
+import { JOB_STATUSES, type Job } from "@/lib/types";
 import { cn, formatEur, formatRelative } from "@/lib/utils";
+
+/** Serie "jobs detectados por día" (últimos 30 días) derivada de datos reales. */
+function buildJobsPerDay(jobs: Job[]) {
+  const days: { key: string; date: string }[] = [];
+  const index = new Map<string, number>();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    days.push({
+      key,
+      date: d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" }),
+    });
+    index.set(key, days.length - 1);
+  }
+  const detected = new Array(days.length).fill(0);
+  const high = new Array(days.length).fill(0);
+  for (const j of jobs) {
+    const key = (j.posted_at ?? "").slice(0, 10);
+    const i = index.get(key);
+    if (i === undefined) continue;
+    detected[i] += 1;
+    if (j.match_score >= 70) high[i] += 1;
+  }
+  return days.map((d, i) => ({
+    date: d.date,
+    detected: detected[i],
+    high_match: high[i],
+  }));
+}
+
+/** Recuento de ofertas por fuente derivado de datos reales. */
+function buildAppsBySource(jobs: Job[]) {
+  const counts = new Map<string, number>();
+  for (const j of jobs) {
+    const src = j.source || "unknown";
+    counts.set(src, (counts.get(src) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count);
+}
 
 export default function MetricsPage() {
   const metrics = useMetricsToday();
   const pipeline = usePipeline();
   const companies = useCompanies();
   const jobs = useJobs();
+  const persons = usePersons();
   const apiCosts = useApiCosts();
   const hasPaidApi = useHasPaidApi();
 
@@ -88,6 +128,13 @@ export default function MetricsPage() {
       avg_score: c.avg_score,
     }));
 
+  const allJobs = jobs.data ?? [];
+  const jobsPerDay = buildJobsPerDay(allJobs);
+  const appsBySource = buildAppsBySource(allJobs);
+  const acceptedConnections = (persons.data ?? []).filter(
+    (p) => p.status === "accepted",
+  ).length;
+
   const costs = apiCosts.data;
 
   return (
@@ -126,10 +173,9 @@ export default function MetricsPage() {
           />
           <MetricCard
             label="Connections"
-            value={3}
+            value={acceptedConnections}
             hint="LinkedIn accepted"
             icon={Users}
-            spark={[0, 1, 1, 2, 2, 3, 3]}
           />
           {hasPaidApi && (
             <MetricCard
@@ -149,8 +195,8 @@ export default function MetricsPage() {
           Distribution
         </h2>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <JobsPerDayChart data={mockJobsPerDay} />
-          <AppsBySourceChart data={mockAppsBySource} />
+          <JobsPerDayChart data={jobsPerDay} />
+          <AppsBySourceChart data={appsBySource} />
           <PipelinePieChart data={pipelineDist} />
           <TopCompaniesChart data={topCompanies} />
         </div>
@@ -181,7 +227,7 @@ export default function MetricsPage() {
                 positiveIsGood={false}
               />
               <ApiCostSparkline
-                data={mockApiCostsPerDay}
+                data={costs.daily}
                 label="Last 30 days · €/day"
               />
             </div>

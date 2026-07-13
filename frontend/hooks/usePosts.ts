@@ -34,14 +34,10 @@ export function useSchedulePost() {
                 typeof when === "string" ? when : when.toISOString(),
             })
           : JSON.stringify({});
-      try {
-        return await api(`/posts/${id}/schedule`, {
-          method: "POST",
-          body,
-        });
-      } catch {
-        return { ok: true };
-      }
+      return api(`/posts/${id}/schedule`, {
+        method: "POST",
+        body,
+      });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["posts"] }),
   });

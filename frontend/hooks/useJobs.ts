@@ -80,20 +80,11 @@ export function useJob(id: number) {
 export function usePrepareApplication() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (jobId: number) => {
-      try {
-        return await api<PrepareApplicationResponse>(
-          `/jobs/${jobId}/prepare-application`,
-          { method: "POST" },
-        );
-      } catch {
-        return {
-          cv_path: `/tmp/cv_job_${jobId}.pdf`,
-          cover_letter_path: `/tmp/cover_job_${jobId}.pdf`,
-          source_url: "",
-        } satisfies PrepareApplicationResponse;
-      }
-    },
+    mutationFn: async (jobId: number) =>
+      api<PrepareApplicationResponse>(
+        `/jobs/${jobId}/prepare-application`,
+        { method: "POST" },
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["pipeline"] });
@@ -116,14 +107,10 @@ export function useUpdateJobStatus() {
     }) => {
       const body: Record<string, unknown> = { status };
       if (typeof notes === "string") body.notes = notes;
-      try {
-        return await api<Job>(`/jobs/${id}`, {
-          method: "PATCH",
-          body: JSON.stringify(body),
-        });
-      } catch {
-        return { id, status, notes } as Partial<Job>;
-      }
+      return api<Job>(`/jobs/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs"] });

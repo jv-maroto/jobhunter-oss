@@ -505,6 +505,13 @@ export const mockApiCosts: ApiCosts = {
     },
   ],
   recent_calls: mockApiCalls,
+  daily: Array.from({ length: 30 }, (_, i) => {
+    const d = daysAgo(29 - i);
+    return {
+      d: d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" }),
+      v: +(Math.random() * 0.6 + 0.05).toFixed(2),
+    };
+  }),
 };
 
 export const mockApiCostsPerDay = Array.from({ length: 30 }, (_, i) => {
