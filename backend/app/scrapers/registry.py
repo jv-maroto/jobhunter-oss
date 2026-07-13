@@ -108,8 +108,8 @@ def _home_country(cv: dict | None, regions: list[str]) -> str:
     """Pais base para las busquedas remotas de Indeed (jobspy siempre exige uno).
 
     Devuelve SIEMPRE un nombre que jobspy entienda (via `country_map`), nunca
-    texto libre del CV: `personal.location` es tipo "Tacoronte, Tenerife (España)"
-    y pasarle eso a jobspy no resuelve a ningun pais.
+    texto libre del CV: `personal.location` suele venir como "Ciudad, Provincia
+    (Pais)" y pasarle eso a jobspy no resuelve a ningun pais.
 
     Prioridad: region-pais elegida > preferred_countries > pais del CV > España.
     """
