@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiOrMock } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { Person, PersonStatus } from "@/lib/types";
 
 type PersonsResponse = Person[] | { items: Person[]; total?: number };
@@ -10,9 +10,8 @@ export function usePersons(status?: PersonStatus) {
   return useQuery<Person[]>({
     queryKey: ["persons", status ?? "all"],
     queryFn: async () => {
-      const resp = await apiOrMock<PersonsResponse>(
+      const resp = await api<PersonsResponse>(
         `/persons${status ? `?status=${status}` : ""}`,
-        "persons",
       );
       if (Array.isArray(resp)) return resp;
       return resp?.items ?? [];

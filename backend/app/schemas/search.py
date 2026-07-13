@@ -13,6 +13,13 @@ class PlatformInfo(BaseModel):
     apply_support: str = ""
     tos_risk: str = ""
     enabled_by_default: bool = False
+    # ¿Hay un scraper detras de verdad? Si es False, activarla no busca nada.
+    implemented: bool = False
+    # "available" | "planned" (declarada, sin scraper) | "apply_only" (solo autorrelleno)
+    status: str = "available"
+    # Clave de entorno necesaria (p.ej. adzuna_app_id); si falta, se autodesactiva.
+    requires_env: str | None = None
+    notes: str | None = None
 
 
 class SearchProfileOut(BaseModel):

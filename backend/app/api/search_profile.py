@@ -63,6 +63,12 @@ def _platform_info(p: dict) -> PlatformInfo:
         apply_support=p.get("apply_support", ""),
         tos_risk=p.get("tos_risk", ""),
         enabled_by_default=bool(p.get("enabled_by_default")),
+        # Sin esto la UI pintaba un toggle verde para plataformas que no existen:
+        # el usuario las activaba y no se buscaba nada, sin aviso.
+        implemented=bool(p.get("implemented")),
+        status=p.get("status", "available"),
+        requires_env=p.get("requires_env"),
+        notes=p.get("notes"),
     )
 
 

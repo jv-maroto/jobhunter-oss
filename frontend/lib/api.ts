@@ -1,5 +1,9 @@
-// Cliente HTTP minimal con fallback a mocks si el backend no responde.
-import { mock } from "@/lib/mock";
+// Cliente HTTP minimal.
+//
+// NO hay fallback a datos de mentira: antes, si el backend no respondia, se
+// devolvian ofertas y empresas INVENTADAS indistinguibles de las reales. En una
+// herramienta de busqueda de empleo eso es inaceptable — es mejor ver un error
+// que creerte una oferta que no existe. Si falla, falla y se ve.
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -53,22 +57,6 @@ export async function apiUpload<T>(
   }
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
-}
-
-/**
- * Hace fetch al backend real; si falla (offline / 5xx), devuelve mock.
- * Pensado para que el dashboard sea navegable sin backend corriendo.
- */
-export async function apiOrMock<T>(
-  path: string,
-  mockKey: keyof typeof mock,
-  init?: RequestInit,
-): Promise<T> {
-  try {
-    return await api<T>(path, init);
-  } catch {
-    return mock[mockKey] as unknown as T;
-  }
 }
 
 export async function ping(): Promise<boolean> {

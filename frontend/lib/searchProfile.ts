@@ -9,6 +9,13 @@ export interface PlatformInfo {
   apply_support: string;
   tos_risk: string;
   enabled_by_default: boolean;
+  /** ¿Existe un scraper de verdad? Si es false, activarla no buscaría nada. */
+  implemented: boolean;
+  /** "available" | "planned" (declarada, sin scraper) | "apply_only" */
+  status: "available" | "planned" | "apply_only" | string;
+  /** Clave de entorno necesaria (p.ej. adzuna_app_id). */
+  requires_env: string | null;
+  notes: string | null;
 }
 
 export interface SearchProfile {

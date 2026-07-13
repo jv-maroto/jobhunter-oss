@@ -155,14 +155,12 @@ export default function MetricsPage() {
             value={weekScraped}
             hint="this week"
             icon={Briefcase}
-            spark={[8, 12, 9, 14, 18, 12, 16]}
           />
           <MetricCard
             label="Applications"
             value={totalApplied}
             hint="all time"
             icon={Send}
-            spark={[1, 2, 1, 3, 4, 3, 5]}
           />
           <MetricCard
             label="Response rate"
@@ -183,7 +181,6 @@ export default function MetricsPage() {
               value={formatEur(m.api_cost_eur.month)}
               hint={`today ${formatEur(m.api_cost_eur.today)}`}
               icon={CircleDollarSign}
-              spark={[0.1, 0.3, 0.2, 0.5, 0.4, 0.6, 0.42]}
               positiveIsGood={false}
             />
           )}

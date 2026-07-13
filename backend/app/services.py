@@ -62,6 +62,15 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
         except UnicodeEncodeError:
             return s.encode("utf-8", "replace").decode("utf-8")
 
+    # Cada oferta nueva cuesta una llamada al LLM. Un ciclo amplio (HN trae ~180,
+    # Arbeitnow ~40, jobspy varios cientos) puede disparar el gasto sin techo, asi
+    # que ponemos un tope por ejecucion. Lo que pasa del tope se guarda SIN puntuar
+    # (match_score=0, rejection_reason="not_scored") y se puntuara en otro ciclo:
+    # preferimos guardar la oferta a perderla.
+    cap = int(getattr(settings, "max_scored_jobs_per_run", 0) or 0)
+    scored_count = 0
+    skipped_scoring = 0
+
     for sj in scraped:
         # Sanitize all string fields before insert
         sj.title = _clean_unicode(sj.title) or ""
@@ -75,11 +84,16 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
             duplicates += 1
             continue
 
-        try:
-            scored: ScoredJobResult = score_job(db, sj, cv)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("scoring failed for %s: %s", sj.title, exc)
-            scored = ScoredJobResult(match_score=0, rejection_reason="scoring_error")
+        if cap and scored_count >= cap:
+            scored = ScoredJobResult(match_score=0, rejection_reason="not_scored")
+            skipped_scoring += 1
+        else:
+            try:
+                scored = score_job(db, sj, cv)
+                scored_count += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("scoring failed for %s: %s", sj.title, exc)
+                scored = ScoredJobResult(match_score=0, rejection_reason="scoring_error")
 
         company_obj = _get_or_create_company(db, sj.company)
 
@@ -126,6 +140,14 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             logger.warning("insert failed for %s/%s: %s", sj.source, sj.title, exc)
+
+    if skipped_scoring:
+        logger.warning(
+            "tope de scoring alcanzado (%d/ciclo): %d ofertas guardadas SIN puntuar "
+            "(rejection_reason='not_scored'). Sube MAX_SCORED_JOBS_PER_RUN si quieres mas.",
+            cap,
+            skipped_scoring,
+        )
 
     return inserted, duplicates
 

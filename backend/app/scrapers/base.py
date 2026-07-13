@@ -22,6 +22,21 @@ class BaseScraper(ABC):
 
     name: str = "base"
 
+    def configure(
+        self,
+        *,
+        regions: list[str] | None = None,
+        queries: list[str] | None = None,
+        prefs: dict | None = None,
+    ) -> None:
+        """Inyecta el contexto de busqueda del usuario (regiones/queries).
+
+        No-op por defecto: los scrapers de un solo board (Remotive, HN...) no lo
+        necesitan. Los que si dependen de pais/termino (p.ej. Adzuna) lo
+        sobreescriben. El registry lo llama siempre tras instanciar.
+        """
+        return None
+
     @abstractmethod
     async def fetch(self) -> list[ScrapedJob]:
         """Devuelve la lista de ofertas encontradas con hash calculado."""

@@ -18,8 +18,11 @@ import logging
 from functools import lru_cache
 
 from app.config import settings
+from app.scrapers.adzuna import AdzunaScraper
+from app.scrapers.arbeitnow import ArbeitnowScraper
 from app.scrapers.base import BaseScraper
 from app.scrapers.country_map import EU_COUNTRIES, jobspy_params_for, resolve_regions
+from app.scrapers.hackernews_jobs import HackerNewsWhoIsHiringScraper
 from app.scrapers.jobspy_scraper import JobspyPlan, JobspyScraper
 from app.scrapers.platsbanken import PlatsbankenScraper
 from app.scrapers.query_builder import build_search_queries
@@ -30,12 +33,14 @@ from app.scrapers.weworkremotely import WeWorkRemotelyScraper
 logger = logging.getLogger(__name__)
 
 # Scrapers propios ya implementados, indexados por el `scraper_class` del catalogo.
-# Los boards aun no implementados (scraper_class=null) se ignoran aqui.
 SCRAPER_BY_ID: dict[str, type[BaseScraper]] = {
     "RemotiveScraper": RemotiveScraper,
     "TecnoempleoScraper": TecnoempleoScraper,
     "PlatsbankenScraper": PlatsbankenScraper,
     "WeWorkRemotelyScraper": WeWorkRemotelyScraper,
+    "HackerNewsWhoIsHiringScraper": HackerNewsWhoIsHiringScraper,
+    "ArbeitnowScraper": ArbeitnowScraper,
+    "AdzunaScraper": AdzunaScraper,
 }
 
 _DYNAMIC_KEYS = ("regions", "region_preset", "platforms", "queries")
@@ -181,25 +186,49 @@ def build_active_scrapers(cv: dict | None, prefs: dict | None) -> list[BaseScrap
         if plans:
             instances.append(JobspyScraper(plans))
 
+    skipped: list[str] = []
     for p in active:
-        # Cualquier plataforma con un scraper propio implementado (sea method
-        # "scraper" o "api"); jobspy va aparte, y apply_only/mcp no aportan ofertas.
+        if p.get("method") == "jobspy":
+            continue  # ya cubierto arriba
+        if p.get("method") == "apply_only":
+            continue  # por diseño no aporta ofertas
+        # Cualquier plataforma con un scraper propio implementado (method
+        # "scraper" o "api").
         cls_name = p.get("scraper_class")
-        if p.get("method") in ("scraper", "api") and cls_name:
-            cls = SCRAPER_BY_ID.get(cls_name)
-            if cls:
-                instances.append(cls())
+        cls = SCRAPER_BY_ID.get(cls_name) if cls_name else None
+        if cls is None:
+            # Declarada en el catalogo pero SIN implementacion. Antes se ignoraba
+            # en silencio y el usuario creia que estaba buscando ahi.
+            skipped.append(p["id"])
+            continue
+        inst = cls()
+        inst.configure(regions=regions, queries=queries, prefs=prefs)
+        instances.append(inst)
+
+    if skipped:
+        logger.warning(
+            "registry: plataformas SIN scraper implementado, no se buscara en ellas: %s. "
+            "Estan marcadas como 'planned' en platforms.json.",
+            skipped,
+        )
 
     if not instances:
-        logger.info("registry: sin scrapers activos para regiones=%s, usando legacy", regions)
-        from app.scrapers import ALL_SCRAPERS
-
-        return [cls() for cls in ALL_SCRAPERS]
+        # NO caemos a ALL_SCRAPERS: eso scrapeaba portales de OTROS paises
+        # (p.ej. pedir solo Holanda y acabar recibiendo ofertas de Tecnoempleo).
+        # Preferimos devolver 0 ofertas y que se vea, a devolver ofertas erroneas.
+        logger.error(
+            "registry: NINGUNA plataforma activa con scraper para regiones=%s "
+            "(seleccionadas=%s, sin implementar=%s). 0 ofertas: revisa tu seleccion.",
+            regions,
+            [p["id"] for p in active],
+            skipped,
+        )
+        return []
 
     logger.info(
         "registry: %d scrapers activos (regiones=%s, plataformas=%s)",
         len(instances),
         regions,
-        [p["id"] for p in active],
+        [p["id"] for p in active if p.get("scraper_class") or p.get("jobspy_site")],
     )
     return instances

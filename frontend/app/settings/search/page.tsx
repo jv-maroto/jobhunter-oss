@@ -281,33 +281,68 @@ function PlatformRow({
   checked: boolean;
   onToggle: () => void;
 }) {
+  // Una plataforma "planned" esta en el catalogo pero NO tiene scraper detras.
+  // Antes se pintaba un toggle normal: el usuario la activaba, no se buscaba
+  // nada y nadie se lo decia. Ahora se deshabilita y se explica por que.
+  const planned = p.status === "planned" || !p.implemented;
+  const disabled = planned && p.method !== "apply_only";
+
   return (
-    <div className="flex items-center justify-between rounded-md border border-[hsl(var(--border))] px-3 py-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{p.label}</span>
-        <span className="rounded border border-[hsl(var(--border))] px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-          {p.method}
-        </span>
-        {p.tos_risk && (
-          <span className={cn("rounded border px-1.5 py-0.5 text-[10px] uppercase", TOS_COLORS[p.tos_risk])}>
-            ToS {p.tos_risk}
+    <div
+      className={cn(
+        "flex items-center justify-between rounded-md border border-[hsl(var(--border))] px-3 py-2",
+        disabled && "opacity-55",
+      )}
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">{p.label}</span>
+          <span className="rounded border border-[hsl(var(--border))] px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+            {p.method}
+          </span>
+          {p.tos_risk && (
+            <span className={cn("rounded border px-1.5 py-0.5 text-[10px] uppercase", TOS_COLORS[p.tos_risk])}>
+              ToS {p.tos_risk}
+            </span>
+          )}
+          {disabled && (
+            <span className="rounded border border-[hsl(38_95%_55%)]/40 bg-[hsl(38_95%_55%)]/10 px-1.5 py-0.5 text-[10px] uppercase text-[hsl(38_95%_60%)]">
+              sin scraper
+            </span>
+          )}
+        </div>
+        {disabled && (
+          <span className="text-[11px] text-muted-foreground">
+            Declarada en el catálogo pero aún no implementada: no se buscarán
+            ofertas aquí.
+          </span>
+        )}
+        {!disabled && p.requires_env && (
+          <span className="text-[11px] text-muted-foreground">
+            Necesita <code className="mono">{p.requires_env.toUpperCase()}</code> en
+            el .env; sin la clave se desactiva sola.
           </span>
         )}
       </div>
       <button
-        onClick={onToggle}
+        onClick={disabled ? undefined : onToggle}
+        disabled={disabled}
+        title={
+          disabled ? "Todavía no hay scraper para esta plataforma" : undefined
+        }
         className={cn(
-          "h-6 w-11 rounded-full border transition-colors",
-          checked
+          "h-6 w-11 shrink-0 rounded-full border transition-colors",
+          disabled && "cursor-not-allowed",
+          checked && !disabled
             ? "border-[hsl(var(--accent-1))]/55 bg-[hsl(var(--accent-1))]/30"
             : "border-[hsl(var(--border))] bg-white/5",
         )}
-        aria-pressed={checked}
+        aria-pressed={checked && !disabled}
       >
         <span
           className={cn(
             "block h-4 w-4 rounded-full bg-foreground transition-transform",
-            checked ? "translate-x-6" : "translate-x-1",
+            checked && !disabled ? "translate-x-6" : "translate-x-1",
           )}
         />
       </button>

@@ -61,6 +61,15 @@ class Settings(BaseSettings):
 
     # Scoring
     min_score_for_prepare: int = Field(default=70)
+    # Tope de ofertas puntuadas por ciclo de scrape. Cada oferta nueva = 1
+    # llamada al LLM: sin tope, un scrape amplio (HN trae ~270, Arbeitnow ~100)
+    # puede disparar cientos de llamadas de golpe. 0 = sin limite.
+    max_scored_jobs_per_run: int = Field(default=150)
+
+    # Adzuna (clave gratuita en https://developer.adzuna.com). Sin estas dos,
+    # el scraper de Adzuna se autodesactiva via `requires_env` en platforms.json.
+    adzuna_app_id: str = Field(default="")
+    adzuna_app_key: str = Field(default="")
 
     # Feature flags — can be turned off in .env for the public version of the repo
     # (community user who only wants the job-search core without AI post/comment generation)

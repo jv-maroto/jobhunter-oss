@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api, apiOrMock } from "@/lib/api";
+import { api } from "@/lib/api";
 import type {
   Job,
   JobStatus,
@@ -56,7 +56,7 @@ export function useJobs(q: JobsQuery = {}) {
   return useQuery<Job[]>({
     queryKey: ["jobs", q],
     queryFn: async () => {
-      const resp = await apiOrMock<JobsResponse>(`/jobs${buildSearch(q)}`, "jobs");
+      const resp = await api<JobsResponse>(`/jobs${buildSearch(q)}`);
       if (Array.isArray(resp)) return resp;
       return resp?.items ?? [];
     },
@@ -67,12 +67,7 @@ export function useJob(id: number) {
   return useQuery<Job | undefined>({
     queryKey: ["job", id],
     queryFn: async () => {
-      try {
-        return await api<Job>(`/jobs/${id}`);
-      } catch {
-        const { mockJobs } = await import("@/lib/mock");
-        return mockJobs.find((j) => j.id === id);
-      }
+      return api<Job>(`/jobs/${id}`);
     },
   });
 }

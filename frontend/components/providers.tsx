@@ -29,6 +29,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 60_000,
             refetchOnWindowFocus: false,
             retry: 1,
+            // Antes los fallos se tapaban con datos inventados (apiOrMock).
+            // Ahora se propagan al error boundary (`app/error.tsx`) para que
+            // quede claro que el backend no responde, en vez de enseñar
+            // ofertas que no existen.
+            throwOnError: true,
           },
         },
       }),

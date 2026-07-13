@@ -65,27 +65,47 @@ export default function TodayPage() {
   };
 
   const triggerScrape = async () => {
+    // OJO: /jobs/scrape-now es asincrono, solo devuelve {"status":"started"}.
+    // Antes se leian res.scraped/res.inserted de esa respuesta, asi que el toast
+    // decia SIEMPRE "0 found, 0 new". Hay que sondear /jobs/scrape-status.
     try {
-      const res = await api<{
-        scraped?: number;
-        inserted?: number;
-        duplicates?: number;
-      }>("/jobs/scrape-now", { method: "POST" });
-      const scraped = res?.scraped ?? 0;
-      const inserted = res?.inserted ?? 0;
-      const dupes = res?.duplicates ?? 0;
-      toast.success(`Scrape: ${scraped} found, ${inserted} new`, {
-        description:
-          dupes > 0
-            ? `${dupes} duplicates already in DB (including any you previously skipped).`
-            : undefined,
-        icon: <RefreshCcw className="h-4 w-4" />,
-        duration: 6000,
+      await api<{ status: string }>("/jobs/scrape-now", { method: "POST" });
+      const toastId = toast.loading("Scraping…", {
+        icon: <RefreshCcw className="h-4 w-4 animate-spin" />,
       });
-      jobs.refetch();
-      metrics.refetch();
+
+      for (let i = 0; i < 150; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await api<{
+          running: boolean;
+          scraped: number;
+          inserted: number;
+          duplicates: number;
+          error: string | null;
+        }>("/jobs/scrape-status");
+
+        if (st.running) continue;
+
+        if (st.error) {
+          toast.error("Scrape falló", { id: toastId, description: st.error });
+        } else {
+          toast.success(`Scrape: ${st.scraped} encontradas, ${st.inserted} nuevas`, {
+            id: toastId,
+            description:
+              st.duplicates > 0 ? `${st.duplicates} ya estaban en la BD.` : undefined,
+            duration: 6000,
+          });
+        }
+        jobs.refetch();
+        metrics.refetch();
+        return;
+      }
+      toast.warning("El scrape sigue en curso", {
+        id: toastId,
+        description: "Tarda más de lo normal; revisa los logs del backend.",
+      });
     } catch (e) {
-      toast.error("Backend offline — scrape skipped", {
+      toast.error("No se pudo lanzar el scrape", {
         description: String(e).slice(0, 120),
       });
     }
@@ -110,8 +130,6 @@ export default function TodayPage() {
           value={m?.today.new_jobs ?? 0}
           hint="today"
           icon={Briefcase}
-          delta={12.5}
-          spark={[3, 5, 4, 6, 8, 7, 9]}
           accent={m && m.today.new_jobs > 0 ? "default" : "warn"}
         />
         <MetricCard
@@ -119,8 +137,6 @@ export default function TodayPage() {
           value={m?.today.jobs_above_70 ?? 0}
           hint="strong matches"
           icon={Target}
-          delta={4.2}
-          spark={[1, 2, 1, 3, 4, 3, 5]}
           accent="good"
         />
         <MetricCard
@@ -128,7 +144,6 @@ export default function TodayPage() {
           value={(persons.data ?? []).length}
           hint="pending outreach"
           icon={Users}
-          spark={[2, 3, 4, 3, 5, 4, 6]}
         />
         {hasPaidApi && (
           <MetricCard
@@ -136,9 +151,7 @@ export default function TodayPage() {
             value={formatEur(m?.api_cost_eur.today ?? 0)}
             hint={`month ${formatEur(m?.api_cost_eur.month ?? 0)}`}
             icon={CircleDollarSign}
-            delta={-8.4}
             positiveIsGood={false}
-            spark={[0.2, 0.4, 0.3, 0.5, 0.6, 0.4, 0.42]}
           />
         )}
       </motion.div>

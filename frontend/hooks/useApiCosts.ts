@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { mockApiCosts } from "@/lib/mock";
 import type { ApiCosts, ApiCostBreakdown, AiProvider } from "@/lib/types";
 
 /** Shape served by the backend at GET /metrics/api-costs */
@@ -105,19 +104,16 @@ export function useApiCosts() {
   return useQuery<ApiCosts>({
     queryKey: ["api-costs"],
     queryFn: async () => {
-      try {
-        const [today, month] = await Promise.all([
-          api<BackendApiCostsResponse>(
-            `/metrics/api-costs?since=${encodeURIComponent(isoStartOfToday())}`,
-          ),
-          api<BackendApiCostsResponse>(
-            `/metrics/api-costs?since=${encodeURIComponent(isoStartOfMonth())}`,
-          ),
-        ]);
-        return adapt(today, month);
-      } catch {
-        return mockApiCosts;
-      }
+      // Sin fallback a costes inventados: si el backend falla, que se vea.
+      const [today, month] = await Promise.all([
+        api<BackendApiCostsResponse>(
+          `/metrics/api-costs?since=${encodeURIComponent(isoStartOfToday())}`,
+        ),
+        api<BackendApiCostsResponse>(
+          `/metrics/api-costs?since=${encodeURIComponent(isoStartOfMonth())}`,
+        ),
+      ]);
+      return adapt(today, month);
     },
     staleTime: 30_000,
   });

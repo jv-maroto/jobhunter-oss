@@ -65,10 +65,16 @@ export function CommandPalette() {
   const triggerScrape = async () => {
     setOpen(false);
     try {
-      await api("/scrape/trigger", { method: "POST" });
-      toast.success("Scrape triggered");
-    } catch {
-      toast.error("Backend offline — scrape skipped");
+      // Antes apuntaba a /scrape/trigger, que NO existe: daba 404 siempre y el
+      // catch lo disfrazaba de "Backend offline".
+      await api("/jobs/scrape-now", { method: "POST" });
+      toast.success("Scrape lanzado", {
+        description: "Corre en segundo plano; las ofertas iran apareciendo.",
+      });
+    } catch (e) {
+      toast.error("No se pudo lanzar el scrape", {
+        description: String(e).slice(0, 120),
+      });
     }
   };
 
@@ -92,7 +98,7 @@ export function CommandPalette() {
   ];
 
   const actions: NavCmd[] = [
-    { id: "scrape", label: "Trigger scrape now", hint: "POST /scrape/trigger", icon: RefreshCcw, action: triggerScrape },
+    { id: "scrape", label: "Trigger scrape now", hint: "POST /jobs/scrape-now", icon: RefreshCcw, action: triggerScrape },
     { id: "week", label: "Generate week of posts", hint: "POST /posts/generate-week", icon: Megaphone, action: generateWeek },
   ];
 
