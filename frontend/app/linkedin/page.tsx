@@ -7,7 +7,6 @@ import {
   Calendar,
   Copy,
   RefreshCcw,
-  CheckCircle2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";

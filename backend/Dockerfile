@@ -1,7 +1,9 @@
-# JobHunter backend — Fly.io optimized
+# JobHunter backend — imagen para uso LOCAL (docker run -p 127.0.0.1:8000:8000 ...).
+# La API no tiene autenticacion por diseño (single-user, local-first): NO la
+# expongas a internet tal cual.
 FROM python:3.12-slim
 
-# System deps: typst for CV generation, fonts for Pillow, build tools
+# System deps: typst for CV generation, fonts for Pillow
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -16,25 +18,17 @@ RUN curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86
 
 WORKDIR /app
 
-# Python deps (cached layer)
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e . && pip install --no-cache-dir uvicorn[standard]
-
-# App code
+# Python deps (cached layer). `[onboarding]` = parsing de CV (PDF/DOCX).
+COPY pyproject.toml README.md ./
 COPY app ./app
+RUN pip install --no-cache-dir -e ".[onboarding]"
+
 COPY .env.example ./
 
-# Data directory — overridden by DATA_PATH env var if mounted volume available
-ENV DATABASE_URL="sqlite:///./jobhunter.db"
-ENV DATA_PATH="./data"
-RUN mkdir -p /app/data /app/data/applications /app/data/posts /app/data/cache \
-    && chmod -R 777 /app/data
+ENV DATABASE_URL="sqlite:////app/data/jobhunter.db"
+ENV DATA_DIR="/app/data"
+RUN mkdir -p /app/data/applications /app/data/posts /app/data/cache
 
 EXPOSE 8000
 
-# Disable scheduler in production by default — re-enable via env var if desired
-ENV ENABLE_SCHEDULER="false"
-
-# HF Spaces requires the app to listen on port 7860 OR be configured via app_port.
-# We use 8000 + app_port: 8000 in README.md frontmatter.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

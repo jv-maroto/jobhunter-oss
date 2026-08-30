@@ -13,7 +13,7 @@ from app.ai.client import parse_json_block, run_sync
 from app.ai.router import get_router
 from app.models.job import ScoreCache
 from app.schemas.job import ScoredJobResult, ScrapedJob
-from app.scoring.prompts import SCORING_SYSTEM, build_scoring_user_prompt
+from app.scoring.prompts import build_scoring_system, build_scoring_user_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def _call_router(job: dict[str, Any], cv: dict[str, Any]) -> ScoredJobResult:
     router = get_router()
     try:
         user_prompt = (
-            "CV (referencia, igual entre llamadas):\n"
+            "Candidate CV (reference, identical across calls):\n"
             + json.dumps(cv, ensure_ascii=False)
             + "\n\n"
             + build_scoring_user_prompt({}, job)
@@ -108,7 +108,7 @@ def _call_router(job: dict[str, Any], cv: dict[str, Any]) -> ScoredJobResult:
         response = run_sync(
             router.complete_for(
                 tier="scoring",
-                system=SCORING_SYSTEM,
+                system=build_scoring_system(cv),
                 user=user_prompt,
                 max_tokens=800,
                 temperature=0.2,

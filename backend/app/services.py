@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.company import Company
 from app.models.job import Job
-from app.schemas.job import ScrapedJob, ScoredJobResult
+from app.schemas.job import ScoredJobResult, ScrapedJob
 from app.scoring.scorer import score_job
 from app.scrapers.registry import build_active_scrapers
 
@@ -179,13 +179,21 @@ async def run_all_scrapers() -> list[ScrapedJob]:
     return all_jobs
 
 
-async def scrape_and_ingest(db: Session) -> dict[str, int]:
+async def scrape_and_ingest(db: Session) -> dict[str, int | str]:
     """Pipeline completo: scrape -> dedup -> score -> insert.
 
     `ingest_scraped_jobs` es síncrono y hace N llamadas a Claude para scoring,
     lo cual bloquearía el event loop si lo llamamos directo. Lo movemos a un
     thread para que el resto del backend siga respondiendo durante el scrape.
     """
+    from app.onboarding.detect import is_onboarded
+
+    if not is_onboarded():
+        # Sin perfil no hay regiones ni queries reales: scrapear con la plantilla
+        # llenaba la DB de ofertas de cualquier pais antes del onboarding.
+        logger.warning("scrape omitido: completa el onboarding antes de buscar ofertas")
+        return {"scraped": 0, "inserted": 0, "duplicates": 0, "skipped": "not_onboarded"}
+
     scraped = await run_all_scrapers()
 
     # Scraping IA (opcional): re-rankea las ofertas nuevas por relevancia antes de

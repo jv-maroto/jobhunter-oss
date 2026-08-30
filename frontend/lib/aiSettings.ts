@@ -17,6 +17,10 @@ export interface AiSettings {
   ai_scraping_enabled: boolean;
   has_key: AiHasKey;
   local_available: boolean;
+  /** Modelo Ollama configurado en el backend (OLLAMA_MODEL). */
+  local_model: string;
+  /** true si ese modelo esta descargado (`ollama pull`). */
+  local_model_available: boolean;
   active: string;
 }
 

@@ -16,30 +16,24 @@ from sqlalchemy.orm import Session
 from app.ai.image_generator import generate_post_image as generate_post_image_pillow
 from app.ai.image_generator_html import generate_post_image_html
 from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
+from app.db import get_db
+from app.models.post import Post
+from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
 from app.scrapers.article_summary import fetch_summaries
 from app.scrapers.hacker_news import fetch_top_hn_24h
+from app.services import load_cv_master
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/posts", tags=["posts"])
 
 
 def generate_post_image(post_id: int, post_data: dict) -> Path | None:
-    """Try HTML+Playwright (infographic style) first, then Pillow fallback.
-
-    Pollinations.ai generates AI illustrations (penguin-style) which do NOT
-    match the user's requested aesthetic (composite infographic with code +
-    bullets + mockups). Only kept as last-resort.
-    """
+    """Try HTML+Playwright (infographic style) first, then Pillow fallback."""
     p = generate_post_image_html(post_id, post_data)
     if p is not None:
         return p
     logger.warning("HTML render failed for post %s, falling back to Pillow", post_id)
     return generate_post_image_pillow(post_id, post_data)
-
-logger = logging.getLogger(__name__)
-from app.db import get_db
-from app.models.post import Post
-from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
-from app.services import load_cv_master
-
-router = APIRouter(prefix="/posts", tags=["posts"])
 
 
 @router.get("", response_model=list[PostOut])
@@ -301,6 +295,7 @@ _TRENDING_STATE: dict[str, object] = {
 def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> None:
     """Fetch HN top stories, generate trending posts + news-template images."""
     import asyncio
+
     from app.ai.post_generator import NoLLMAvailableError
     from app.db import SessionLocal
 

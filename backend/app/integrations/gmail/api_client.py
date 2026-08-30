@@ -10,7 +10,7 @@ import base64
 import json
 import logging
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime, parseaddr
+from email.utils import parseaddr, parsedate_to_datetime
 
 from app.config import settings
 from app.integrations.gmail import store

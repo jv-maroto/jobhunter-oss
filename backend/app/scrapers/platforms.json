@@ -76,9 +76,9 @@
       "scraper_class": null,
       "apply_support": "manual",
       "tos_risk": "medium",
-      "enabled_by_default": true,
+      "enabled_by_default": false,
       "requires_env": null,
-      "notes": "",
+      "notes": "Desactivado por defecto: python-jobspy recibe HTTP 400 'location not parsed' de Glassdoor para cualquier location (comprobado 2026-08). Activalo si vuelve a funcionar.",
       "implemented": true,
       "status": "available"
     },
@@ -139,7 +139,7 @@
       "tos_risk": "medium",
       "enabled_by_default": true,
       "requires_env": null,
-      "notes": "Scraper HTML ya existente.",
+      "notes": "Scraper HTML (tarjetas div.p-3.border.rounded); usa las queries del perfil.",
       "implemented": true,
       "status": "available"
     },

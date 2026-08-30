@@ -96,7 +96,7 @@ def run_sync(coro):  # type: ignore[no-untyped-def]
     sincrono), crea un hilo aparte para evitar nested-loop errors.
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 

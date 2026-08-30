@@ -77,6 +77,12 @@ export default function OnboardingPage() {
   const [aiProvider, setAiProvider] = React.useState<AiProvider>("anthropic");
   const [aiKey, setAiKey] = React.useState("");
   const [aiLocalOk, setAiLocalOk] = React.useState(true);
+  // Ollama responde pero el modelo no esta descargado -> aviso con el `ollama pull`.
+  const [aiLocalModel, setAiLocalModel] = React.useState<{ name: string; server: boolean; ok: boolean }>({
+    name: "",
+    server: true,
+    ok: true,
+  });
   const [aiSeeded, setAiSeeded] = React.useState(false);
 
   // Paso ROLES: sugerencias de IA + selección multi-chip + roles propios.
@@ -198,10 +204,12 @@ export default function OnboardingPage() {
   const loadAi = React.useCallback(async () => {
     try {
       const s = await aiSettingsApi.get();
-      setAiLocalOk(s.local_available);
+      const localOk = s.local_available && s.local_model_available;
+      setAiLocalOk(localOk);
+      setAiLocalModel({ name: s.local_model, server: s.local_available, ok: s.local_model_available });
       setAiProvider(s.ai_cloud_provider);
       if (s.has_key.anthropic || s.has_key.openai || s.has_key.gemini) setAiMode("cloud");
-      else if (s.local_available) setAiMode("local");
+      else if (localOk) setAiMode("local");
       else setAiMode("off");
     } catch {
       /* backend offline: dejamos los defaults */
@@ -301,7 +309,13 @@ export default function OnboardingPage() {
                 active={aiMode === "local"}
                 disabled={!aiLocalOk}
                 title={t("ai_local")}
-                desc={aiLocalOk ? t("ai_local_desc") : t("ai_local_unavailable")}
+                desc={
+                  aiLocalOk
+                    ? t("ai_local_desc")
+                    : aiLocalModel.server
+                      ? t("ai_local_model_missing").replaceAll("{model}", aiLocalModel.name)
+                      : t("ai_local_unavailable")
+                }
                 onClick={() => aiLocalOk && setAiMode("local")}
               />
               <AiModeOption

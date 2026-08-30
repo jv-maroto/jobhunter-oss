@@ -7,14 +7,13 @@ Los items RSS traen el titulo en formato "Empresa: Puesto".
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
 import httpx
 
-from app.scrapers.base import BaseScraper
 from app.schemas.job import ScrapedJob
+from app.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 

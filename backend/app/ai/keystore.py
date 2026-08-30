@@ -133,11 +133,48 @@ def local_available() -> bool:
         return False
 
 
+def local_models() -> list[str]:
+    """Modelos descargados en Ollama (nombres tipo 'qwen2.5:7b'); [] si no responde."""
+    try:
+        import httpx
+
+        base = settings.ollama_base_url.rstrip("/")
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{base}/api/tags")
+        if resp.status_code != 200:
+            return []
+        return [
+            str(m.get("name") or m.get("model") or "")
+            for m in (resp.json().get("models") or [])
+            if isinstance(m, dict)
+        ]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def local_model_available() -> bool:
+    """True si `settings.ollama_model` esta descargado (con o sin tag explicito).
+
+    Antes solo se miraba que el servidor respondiera: con Ollama instalado pero
+    sin `ollama pull`, todas las llamadas fallaban y el scoring caia al heuristico
+    sin que el usuario supiera por que.
+    """
+    wanted = (settings.ollama_model or "").strip().lower()
+    if not wanted:
+        return False
+    names = {n.lower() for n in local_models()}
+    if wanted in names:
+        return True
+    if ":" not in wanted and f"{wanted}:latest" in names:
+        return True
+    return False
+
+
 def resolve_mode() -> str:
     """Resuelve el modo efectivo: 'cloud' | 'local' | 'off'.
 
     auto -> cloud si hay clave del ai_cloud_provider; si no, local si Ollama
-    responde; si no, off.
+    responde Y tiene el modelo descargado; si no, off.
     """
     state = get_state()
     mode = state.get("ai_mode", "auto")
@@ -146,7 +183,7 @@ def resolve_mode() -> str:
     # auto
     if has_key(state.get("ai_cloud_provider", "anthropic")):
         return "cloud"
-    if local_available():
+    if local_model_available():
         return "local"
     return "off"
 

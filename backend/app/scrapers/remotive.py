@@ -7,8 +7,8 @@ from datetime import datetime
 
 import httpx
 
-from app.scrapers.base import BaseScraper
 from app.schemas.job import ScrapedJob
+from app.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 

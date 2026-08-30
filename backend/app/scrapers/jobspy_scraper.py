@@ -14,8 +14,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from app.scrapers.base import BaseScraper
 from app.schemas.job import ScrapedJob
+from app.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class JobspyPlan:
 
 def _legacy_plan() -> JobspyPlan:
     return JobspyPlan(
-        sites=["linkedin", "indeed", "glassdoor"],
+        sites=["linkedin", "indeed"],
         queries=list(SEARCH_QUERIES),
         location="Spain",
         country_indeed="Spain",

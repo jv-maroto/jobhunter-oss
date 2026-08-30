@@ -9,19 +9,6 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-
-def _company_slug(name: str | None, job_id: int) -> str:
-    """Slug filesystem-safe: lowercase, sin acentos, separado por '-'.
-    Fallback al job_id si el nombre queda vacío."""
-    if name:
-        s = unicodedata.normalize("NFD", name)
-        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-        s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
-        s = s[:60].rstrip("-")
-        if s:
-            return s
-    return str(job_id)
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func, select
@@ -43,6 +30,19 @@ from app.services import load_cv_master, scrape_and_ingest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _company_slug(name: str | None, job_id: int) -> str:
+    """Slug filesystem-safe: lowercase, sin acentos, separado por '-'.
+    Fallback al job_id si el nombre queda vacío."""
+    if name:
+        s = unicodedata.normalize("NFD", name)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
+        s = s[:60].rstrip("-")
+        if s:
+            return s
+    return str(job_id)
 
 
 @router.get("", response_model=JobsListOut)
@@ -145,6 +145,13 @@ async def _run_scrape_background() -> None:
 
 @router.post("/scrape-now", tags=["jobs"])
 async def scrape_now(background_tasks: BackgroundTasks) -> dict:
+    from app.onboarding.detect import is_onboarded
+
+    if not is_onboarded():
+        raise HTTPException(
+            status_code=409,
+            detail="Completa el onboarding antes de buscar ofertas (sin perfil no hay queries).",
+        )
     if _SCRAPE_STATE.get("running"):
         return {"status": "already_running", **_SCRAPE_STATE}
     background_tasks.add_task(_run_scrape_background)

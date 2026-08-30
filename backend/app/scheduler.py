@@ -1,22 +1,21 @@
-"""Scheduler APScheduler: scraping cada 6h, posts semanales, personas Monday."""
+"""Scheduler APScheduler: scraping periodico, posts semanales, sync Gmail."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import date as date_t
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.ai.connection_message import generate_connection_message
 from app.ai.post_generator import generate_weekly_posts
 from app.config import settings
 from app.db import SessionLocal
-from app.models.person import Person
 from app.models.post import Post
+from app.onboarding.detect import is_onboarded
 from app.services import load_cv_master, scrape_and_ingest
 
 logger = logging.getLogger(__name__)
@@ -25,6 +24,12 @@ _scheduler: AsyncIOScheduler | None = None
 
 
 async def _job_scrape() -> None:
+    if not is_onboarded():
+        # Sin perfil no hay regiones ni queries reales: scrapear con la plantilla
+        # llenaba la DB de ofertas de cualquier pais antes de que el usuario
+        # dijera quien es.
+        logger.info("scheduler: onboarding pendiente, scrape omitido")
+        return
     logger.info("scheduler: running scrape+ingest")
     db = SessionLocal()
     try:
@@ -54,75 +59,20 @@ async def _job_gmail_sync() -> None:
         db.close()
 
 
-def _dummy_persons() -> list[dict[str, str]]:
-    """Datos placeholder hasta tener scraping LinkedIn real."""
-    return [
-        {
-            "full_name": "Recruiter Tech Madrid",
-            "headline": "Senior Tech Recruiter",
-            "company": "TechCo Madrid",
-            "profile_url": "https://linkedin.com/in/placeholder-tech-madrid",
-            "reason": "Placeholder: recruiter Python Madrid",
-            "priority": "85",
-        },
-        {
-            "full_name": "Backend Lead Barcelona",
-            "headline": "Backend Engineering Lead",
-            "company": "Saas Barcelona",
-            "profile_url": "https://linkedin.com/in/placeholder-backend-bcn",
-            "reason": "Placeholder: lead backend Python remoto",
-            "priority": "70",
-        },
-    ]
-
-
-def _job_persons_weekly() -> None:
-    """Cada lunes 06:00: genera lista de 20 personas para contactar."""
-    logger.info("scheduler: generating weekly persons list")
-    db = SessionLocal()
-    try:
-        cv = load_cv_master()
-        for raw in _dummy_persons():
-            existing = (
-                db.query(Person).filter(Person.profile_url == raw["profile_url"]).one_or_none()
-            )
-            if existing is not None:
-                continue
-            msg = generate_connection_message(
-                target_person={
-                    "full_name": raw["full_name"],
-                    "headline": raw["headline"],
-                    "company": raw["company"],
-                },
-                profile_owner=cv,
-                language="es",
-            )
-            p = Person(
-                full_name=raw["full_name"],
-                headline=raw["headline"],
-                company=raw["company"],
-                profile_url=raw["profile_url"],
-                reason=raw["reason"],
-                message=msg,
-                priority=int(raw["priority"]),
-                status="pending",
-            )
-            db.add(p)
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("persons weekly job failed: %s", exc)
-        db.rollback()
-    finally:
-        db.close()
-
-
 def _job_posts_weekly() -> None:
     """Cada domingo 18:00: genera 7 posts para la semana siguiente."""
+    if not settings.enable_post_generation:
+        return
+    if not is_onboarded():
+        logger.info("scheduler: onboarding pendiente, posts semanales omitidos")
+        return
     logger.info("scheduler: generating weekly posts")
     db = SessionLocal()
     try:
         cv = load_cv_master()
-        posts = generate_weekly_posts(cv, theme="weekly mix", count=7, language="es")
+        posts = generate_weekly_posts(
+            cv, theme="weekly mix", count=7, language=settings.content_language
+        )
         start = date_t.today() + timedelta(days=1)
         for i, p in enumerate(posts):
             row = Post(
@@ -151,20 +101,14 @@ def start_scheduler() -> AsyncIOScheduler | None:
     if _scheduler is not None:
         return _scheduler
 
-    sched = AsyncIOScheduler(timezone="Europe/Madrid")
+    sched = AsyncIOScheduler(timezone=settings.scheduler_timezone)
 
     sched.add_job(
         _job_scrape,
         IntervalTrigger(hours=settings.scrape_interval_hours),
         id="scrape_all",
         replace_existing=True,
-        next_run_time=datetime.now() + timedelta(seconds=30),
-    )
-    sched.add_job(
-        _job_persons_weekly,
-        CronTrigger(day_of_week="mon", hour=6, minute=0),
-        id="persons_weekly",
-        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     sched.add_job(
         _job_posts_weekly,
@@ -179,12 +123,16 @@ def start_scheduler() -> AsyncIOScheduler | None:
             IntervalTrigger(minutes=settings.gmail_sync_interval_minutes),
             id="gmail_sync",
             replace_existing=True,
-            next_run_time=datetime.now() + timedelta(seconds=60),
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
         )
 
     sched.start()
     _scheduler = sched
-    logger.info("scheduler started (scrape every %dh)", settings.scrape_interval_hours)
+    logger.info(
+        "scheduler started (scrape every %dh, tz=%s)",
+        settings.scrape_interval_hours,
+        settings.scheduler_timezone,
+    )
     return sched
 
 

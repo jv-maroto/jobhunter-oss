@@ -308,7 +308,6 @@ def _render_syntax_line(
     """Very lightweight syntax coloring for Python-ish lines."""
     base_color = (226, 232, 240)
     accent = theme["accent"]
-    accent2 = theme["accent2"]
     string_c = (134, 239, 172)
     comment_c = (107, 114, 128)
     number_c = (251, 191, 36)

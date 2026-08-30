@@ -32,6 +32,10 @@ const DICT: Record<string, Entry> = {
     es: "Ollama no detectado (localhost:11434). Instálalo o elige otra opción.",
     en: "Ollama not detected (localhost:11434). Install it or pick another option.",
   },
+  ai_local_model_missing: {
+    es: "Ollama responde pero falta el modelo {model}. Ejecuta: ollama pull {model}",
+    en: "Ollama is running but the model {model} is missing. Run: ollama pull {model}",
+  },
   ai_cloud: { es: "Cloud · con tu API key", en: "Cloud · with your API key" },
   ai_cloud_desc: {
     es: "Anthropic / OpenAI / Gemini. Mejor calidad; de pago según tu uso.",
@@ -182,7 +186,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem("jh_lang") as Lang | null;
-      if (saved === "es" || saved === "en") setLangState(saved);
+      if (saved === "es" || saved === "en") {
+        setLangState(saved);
+      } else if (typeof navigator !== "undefined") {
+        // Sin preferencia guardada: idioma del navegador (español -> es, resto -> en).
+        setLangState(navigator.language?.toLowerCase().startsWith("es") ? "es" : "en");
+      }
     } catch {
       /* ignore */
     }

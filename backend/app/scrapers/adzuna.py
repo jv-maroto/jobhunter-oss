@@ -15,8 +15,8 @@ from datetime import datetime
 import httpx
 
 from app.config import settings
-from app.scrapers.base import BaseScraper
 from app.schemas.job import ScrapedJob
+from app.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 

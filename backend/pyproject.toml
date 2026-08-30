@@ -3,7 +3,9 @@ name = "jobhunter-backend"
 version = "0.1.0"
 description = "Backend MVP for automated job search system"
 readme = "README.md"
-requires-python = ">=3.12,<3.15"
+# Solo 3.12: python-jobspy pinea NUMPY==1.26.3 y regex<2025, que no tienen wheels
+# para 3.13/3.14 (en Windows falla compilando sin Visual Studio).
+requires-python = ">=3.12,<3.13"
 authors = [{ name = "Javier Jose Maroto Dominguez", email = "javidominguez060@gmail.com" }]
 
 dependencies = [
@@ -21,6 +23,9 @@ dependencies = [
     "tenacity>=9.0",
     "python-dateutil>=2.9",
     "pillow>=10.0",
+    # Necesario en base: los endpoints de onboarding usan UploadFile y FastAPI
+    # aborta al importar la app si falta.
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +38,6 @@ openai = [
 ]
 # Onboarding (Pilar 1): parsing de CV (PDF/DOCX) y subida multipart.
 onboarding = [
-    "python-multipart>=0.0.9",
     "pypdf>=5.0",
     "pdfplumber>=0.11",
     "python-docx>=1.1",
@@ -63,3 +67,10 @@ packages = ["app"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+# Reglas explicitas para que CI y local coincidan (sin depender de configs de usuario).
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

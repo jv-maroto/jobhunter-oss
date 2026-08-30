@@ -86,7 +86,7 @@ export default function JobsPage() {
       }
     }, 4000);
     return () => window.clearInterval(id);
-  }, [scraping, jobs]);
+  }, [scraping, jobs, qc]);
 
   const triggerScrape = async () => {
     try {

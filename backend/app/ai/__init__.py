@@ -7,12 +7,18 @@ Anthropic (principal) -> Gemini (gratis) -> Ollama (local).
 from app.ai.client import (
     acomplete,
     complete,
-    generate_connection_message as generate_connection_message_via_router,
-    generate_cover_letter as generate_cover_letter_via_router,
     generate_cv_content,
     generate_post,
     get_anthropic_client,
     parse_json_block,
+)
+from app.ai.client import (
+    generate_connection_message as generate_connection_message_via_router,
+)
+from app.ai.client import (
+    generate_cover_letter as generate_cover_letter_via_router,
+)
+from app.ai.client import (
     score_job as score_job_via_router,
 )
 from app.ai.connection_message import generate_connection_message

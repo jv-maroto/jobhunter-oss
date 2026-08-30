@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # Scheduler
     scrape_interval_hours: int = Field(default=6)
     enable_scheduler: bool = Field(default=True)
+    # Zona horaria de los jobs periodicos (nombre IANA).
+    scheduler_timezone: str = Field(default="Europe/Madrid")
+    # Idioma del contenido generado automaticamente (posts, mensajes): es | en
+    content_language: str = Field(default="es")
 
     # Scoring
     min_score_for_prepare: int = Field(default=70)

@@ -11,5 +11,3 @@ data/cache/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
-README.md
-docker-compose.yml

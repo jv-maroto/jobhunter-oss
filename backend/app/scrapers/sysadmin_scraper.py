@@ -12,8 +12,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from app.scrapers.base import BaseScraper
 from app.schemas.job import ScrapedJob
+from app.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class SysAdminScraper(BaseScraper):
         for query in SYSADMIN_QUERIES:
             try:
                 df = scrape_jobs(
-                    site_name=["linkedin", "indeed", "glassdoor"],
+                    site_name=["linkedin", "indeed"],
                     search_term=query,
                     location="Spain",
                     results_wanted=15,

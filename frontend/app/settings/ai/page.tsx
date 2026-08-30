@@ -101,7 +101,11 @@ export default function AiSettingsPage() {
           <CardTitle>Modo</CardTitle>
           <CardDescription>
             Activa: <span className="text-foreground">{data.active || "ninguno"}</span>
-            {data.local_available ? " · Ollama detectado" : " · Ollama no detectado"}
+            {data.local_available
+              ? data.local_model_available
+                ? ` · Ollama detectado (${data.local_model})`
+                : ` · Ollama detectado pero falta el modelo ${data.local_model} — ejecuta: ollama pull ${data.local_model}`
+              : " · Ollama no detectado"}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">

@@ -13,15 +13,15 @@ import shutil
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
+from app.schemas.search import PlatformInfo, SearchProfileIn, SearchProfileOut
 from app.scrapers.country_map import resolve_regions
 from app.scrapers.query_builder import build_search_queries
 from app.scrapers.registry import active_platforms, load_catalog, suggest_platforms
-from app.schemas.search import PlatformInfo, SearchProfileIn, SearchProfileOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["search-profile"])
@@ -115,8 +115,14 @@ def get_suggested(regions: str = Query("", description="ISO coma-separado, p.ej.
 
 
 @router.post("/scrape/run")
-async def run_scrape_now(db: Session = Depends(get_db)) -> dict[str, int]:
+async def run_scrape_now(db: Session = Depends(get_db)) -> dict[str, Any]:
     """Lanza un ciclo de scraping+ingest con la configuracion actual ('Buscar ahora')."""
+    from app.onboarding.detect import is_onboarded
     from app.services import scrape_and_ingest
 
+    if not is_onboarded():
+        raise HTTPException(
+            status_code=409,
+            detail="Completa el onboarding antes de buscar ofertas (sin perfil no hay queries).",
+        )
     return await scrape_and_ingest(db)

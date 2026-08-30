@@ -18,6 +18,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.ai import keystore
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings/ai", tags=["ai-settings"])
@@ -32,6 +33,8 @@ def _public_state() -> dict[str, Any]:
         "ai_scraping_enabled": state["ai_scraping_enabled"],
         "has_key": {p: keystore.has_key(p) for p in keystore.PROVIDERS},
         "local_available": keystore.local_available(),
+        "local_model": settings.ollama_model,
+        "local_model_available": keystore.local_model_available(),
         "active": keystore.active_label(),
     }
 

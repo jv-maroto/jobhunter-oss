@@ -23,6 +23,8 @@ from app.api import (
     persons,
     posts,
     search_profile,
+)
+from app.api import (
     settings as settings_api,
 )
 from app.config import settings
@@ -90,7 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="Jobhunter Backend",
     version="0.1.0",
-    description="Automated job search system: scraping, scoring with Claude Haiku, CV/cover generation with Claude Sonnet.",
+    description=(
+        "Self-hosted job search: scraping, LLM scoring (Anthropic / OpenAI / Gemini / "
+        "Ollama), tailored CV + cover letter generation."
+    ),
     lifespan=lifespan,
 )
 
