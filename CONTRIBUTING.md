@@ -27,6 +27,14 @@ cd ../linkedin-ext && npm ci && npm run typecheck && npm run build
 
 CI (`.github/workflows/ci.yml`) runs exactly those commands on every PR.
 
+If you change `frontend/package.json`, regenerate the lockfile with the same npm
+major that CI uses (Node 20 ships npm 10); npm 11 on Windows drops the optional
+wasm32 dependencies and `npm ci` then fails on Linux:
+
+```bash
+cd frontend && npx -y npm@10 install --package-lock-only
+```
+
 ## Adding a job board
 
 1. Add a class in `backend/app/scrapers/` (see `remotive.py` for an API board or
