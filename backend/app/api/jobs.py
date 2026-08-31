@@ -222,20 +222,40 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
         cv_task, cover_task
     )
 
-    # Copy PDFs to a human-friendly export folder (~/.../cvs-out/) so the user
-    # can grab them with a readable name for email/upload. Local personal setup.
+    # Export to a human-friendly folder tree so the user can grab everything
+    # per application with a readable name for email/upload.
+    #
+    # Structure:
+    #   cvs-out/
+    #     YYYY-MM-DD/
+    #       {desc_key}_{HH-MM-SS}_{Company}_job{id}/
+    #         cv.pdf
+    #         cover.pdf
+    #         message.txt  (cover body as plain text — paste into email)
+    #
+    # desc_key = 86400 - seconds_since_midnight (padded 5 digits) so a plain
+    # alphabetical sort in Finder shows the newest of the day first.
     try:
         import shutil, re
-        from datetime import date as _d
-        cvs_out = Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
-        cvs_out.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime as _dt
+        now = _dt.now()
+        secs_of_day = now.hour * 3600 + now.minute * 60 + now.second
+        desc_key = f"{86400 - secs_of_day:05d}"
+        hhmmss = now.strftime("%H-%M-%S")
         safe_company = re.sub(r"[^A-Za-z0-9]+", "_", (job.company or "unknown")).strip("_")
-        stamp = _d.today().isoformat()
-        prefix = f"{safe_company}_{stamp}_job{job.id}"
+        app_dir = (
+            Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
+            / now.date().isoformat()
+            / f"{desc_key}_{hhmmss}_{safe_company}_job{job.id}"
+        )
+        app_dir.mkdir(parents=True, exist_ok=True)
         if pdf_cv and Path(pdf_cv).exists():
-            shutil.copy2(pdf_cv, cvs_out / f"{prefix}_cv.pdf")
+            shutil.copy2(pdf_cv, app_dir / "cv.pdf")
         if pdf_cover and Path(pdf_cover).exists():
-            shutil.copy2(pdf_cover, cvs_out / f"{prefix}_cover.pdf")
+            shutil.copy2(pdf_cover, app_dir / "cover.pdf")
+        # Plain-text version of the cover for quick paste into email/DM
+        if cover_content:
+            (app_dir / "message.txt").write_text(cover_content, encoding="utf-8")
     except Exception as _e:
         logger.warning("cvs-out export failed for job %s: %s", job.id, _e)
 

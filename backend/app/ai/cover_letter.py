@@ -150,6 +150,10 @@ def _compile_cover_pdf(
     typst += "\n\n".join(content.split("\n\n"))
     typst += f"\n#v(2em)\nAtentamente, \\\n{p.get('name', '')}\n"
 
+    # Escape @ in emails so Typst doesn't parse them as bib references.
+    from app.ai.cv_generator import _escape_typst_emails
+    typst = _escape_typst_emails(typst)
+
     typ_file = out_dir / "cover.typ"
     typ_file.write_text(typst, encoding="utf-8")
     try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -49,6 +50,18 @@ def _detect_language(text: str) -> str:
 
 def _ensure_typst() -> bool:
     return shutil.which("typst") is not None
+
+
+# Typst interprets `@key` as a bibliography reference. Emails like
+# `foo@example.com` blow up the compile with:
+#   error: label `<example.com>` does not exist in the document
+# Escape every `@` that looks like an email so it renders as literal text.
+_EMAIL_RX = re.compile(r"(?<!\\)([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+
+
+def _escape_typst_emails(source: str) -> str:
+    """Replace `foo@bar.com` with `foo\\@bar.com` so Typst treats it as text."""
+    return _EMAIL_RX.sub(r"\1\\@\2", source)
 
 
 def _basic_typst_from_master(cv: dict[str, Any], template: str) -> str:
@@ -154,6 +167,10 @@ def generate_cv(
         except Exception as exc:  # noqa: BLE001
             logger.exception("CV gen via router fallido, usando basico: %s", exc)
             typst_source = _basic_typst_from_master(cv_master, template or _MINIMAL_TEMPLATE)
+
+    # Guarantee no `foo@bar.com` sneaks in unescaped (Typst would treat @bar.com
+    # as a bibliography reference and abort compile).
+    typst_source = _escape_typst_emails(typst_source)
 
     typst_file = out_dir / "cv.typ"
     typst_file.write_text(typst_source, encoding="utf-8")
