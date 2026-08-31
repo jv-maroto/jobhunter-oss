@@ -97,6 +97,9 @@ REGLAS:
 - Hashtags específicos al tema, no genéricos tipo #tech #innovation.
 - Idioma: español por defecto salvo que el campo `language` sea "en".
 - Termina SIEMPRE el `content` con una línea final tipo: "🔗 Fuente: {source_url}" (sustituye {source_url} por la URL real). Esto da el link al artículo en el feed de LinkedIn.
+- TEXTO PLANO — LinkedIn NO renderiza markdown. Prohibido usar `**negrita**`,
+  `__negrita__`, `*cursiva*`, backticks, headers `#`, listas con `-` o `*`.
+  Si quieres enfatizar, usa MAYÚSCULAS puntuales o saltos de línea. Nada más.
 - Devuelve ÚNICAMENTE el JSON, sin markdown fences."""
 
 

@@ -84,6 +84,20 @@ _META_OG_REVERSED = re.compile(
     re.IGNORECASE,
 )
 
+# og:image / twitter:image extractors — used for the AMD-style banner hero.
+_META_OGIMG = re.compile(
+    r'<meta[^>]+(?:property|name)\s*=\s*"og:image(?::secure_url)?"[^>]*\bcontent\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_META_OGIMG_REVERSED = re.compile(
+    r'<meta[^>]+content\s*=\s*"([^"]+)"[^>]*(?:property|name)\s*=\s*"og:image(?::secure_url)?"',
+    re.IGNORECASE,
+)
+_META_TWIMG = re.compile(
+    r'<meta[^>]+(?:name|property)\s*=\s*"twitter:image(?::src)?"[^>]*\bcontent\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+
 
 def _clean(text: str, max_len: int = 280) -> str:
     text = unescape(text)
@@ -94,7 +108,6 @@ def _clean(text: str, max_len: int = 280) -> str:
 
 
 def _extract(html: str) -> str | None:
-    # Only scan the <head> to avoid catching body content
     head_end = html.lower().find("</head>")
     chunk = html[: head_end if head_end != -1 else 50_000]
     for rx in (_META_OG, _META_OG_REVERSED, _META_TW, _META_DESC):
@@ -104,41 +117,62 @@ def _extract(html: str) -> str | None:
     return None
 
 
-async def fetch_one(client: httpx.AsyncClient, url: str) -> str:
-    """Returns summary or empty string.
+def _extract_image(html: str, base_url: str = "") -> str | None:
+    """Extract og:image URL (absolute) or None."""
+    head_end = html.lower().find("</head>")
+    chunk = html[: head_end if head_end != -1 else 50_000]
+    for rx in (_META_OGIMG, _META_OGIMG_REVERSED, _META_TWIMG):
+        m = rx.search(chunk)
+        if m:
+            url = unescape(m.group(1)).strip()
+            if url.startswith("//"):
+                url = "https:" + url
+            elif url.startswith("/") and base_url:
+                m2 = re.match(r"(https?://[^/]+)", base_url)
+                if m2:
+                    url = m2.group(1) + url
+            if url.startswith("http"):
+                return url
+    return None
 
-    Follows redirects manually (max 3 hops) revalidando cada URL contra el
-    guard SSRF, ya que un host público podría redirigir a uno interno.
+
+async def fetch_one(client: httpx.AsyncClient, url: str) -> dict[str, str]:
+    """Returns {summary, image}. Both empty strings on failure.
+
+    Follows redirects manually revalidando cada URL contra el guard SSRF.
     """
     try:
         current = url
         for _ in range(4):
             if not _is_safe_public_url(current):
-                logger.debug("article summary skipped unsafe url: %s", current)
-                return ""
+                logger.debug("article fetch skipped unsafe url: %s", current)
+                return {"summary": "", "image": ""}
             r = await client.get(
                 current, headers=_HEADERS, follow_redirects=False, timeout=10.0
             )
             if r.is_redirect:
                 location = r.headers.get("location")
                 if not location:
-                    return ""
+                    return {"summary": "", "image": ""}
                 current = str(r.url.join(location))
                 continue
             if r.status_code != 200:
-                return ""
+                return {"summary": "", "image": ""}
             ctype = r.headers.get("content-type", "")
             if "html" not in ctype.lower():
-                return ""
-            return _extract(r.text) or ""
-        return ""
+                return {"summary": "", "image": ""}
+            return {
+                "summary": _extract(r.text) or "",
+                "image": _extract_image(r.text, str(r.url)) or "",
+            }
+        return {"summary": "", "image": ""}
     except Exception as exc:  # noqa: BLE001
-        logger.debug("article summary fetch failed for %s: %s", url, exc)
-        return ""
+        logger.debug("article fetch failed for %s: %s", url, exc)
+        return {"summary": "", "image": ""}
 
 
-async def fetch_summaries(urls: Iterable[str]) -> dict[str, str]:
-    """Parallel fetch — returns {url: summary} (empty string on failure)."""
+async def fetch_metas(urls: Iterable[str]) -> dict[str, dict[str, str]]:
+    """Parallel fetch — returns {url: {summary, image}}."""
     urls_list = [u for u in urls if u]
     if not urls_list:
         return {}
@@ -146,7 +180,13 @@ async def fetch_summaries(urls: Iterable[str]) -> dict[str, str]:
         results = await asyncio.gather(
             *(fetch_one(client, u) for u in urls_list), return_exceptions=True
         )
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, str]] = {}
     for url, res in zip(urls_list, results, strict=False):
-        out[url] = res if isinstance(res, str) else ""
+        out[url] = res if isinstance(res, dict) else {"summary": "", "image": ""}
     return out
+
+
+async def fetch_summaries(urls: Iterable[str]) -> dict[str, str]:
+    """Parallel fetch — returns {url: summary}. Legacy shim over fetch_metas()."""
+    metas = await fetch_metas(urls)
+    return {u: m.get("summary", "") for u, m in metas.items()}

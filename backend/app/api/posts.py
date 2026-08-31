@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as date_t
 from datetime import datetime, timedelta
 from pathlib import Path
+
+
+_MD_BOLD_RX = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_MD_BOLD_UNDER_RX = re.compile(r"__(.+?)__", re.DOTALL)
+
+
+def _strip_markdown_bold(text: str) -> str:
+    """LinkedIn no renderiza markdown en posts nativos — quita **bold** y __bold__
+    dejando solo el texto interior. También limpia asteriscos sueltos residuales."""
+    if not text:
+        return text
+    text = _MD_BOLD_RX.sub(r"\1", text)
+    text = _MD_BOLD_UNDER_RX.sub(r"\1", text)
+    text = text.replace("**", "")
+    return text
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -19,7 +35,7 @@ from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
 from app.db import get_db
 from app.models.post import Post
 from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
-from app.scrapers.article_summary import fetch_summaries
+from app.scrapers.article_summary import fetch_metas, fetch_summaries
 from app.scrapers.hacker_news import fetch_top_hn_24h
 from app.services import load_cv_master
 
@@ -126,7 +142,11 @@ def schedule_post(
 
 @router.post("/{post_id}/generate-image", response_model=PostOut)
 def generate_image(post_id: int, db: Session = Depends(get_db)) -> PostOut:
-    """Generate (or regenerate) the visual for a post using Playwright."""
+    """Generate (or regenerate) the visual for a post using Playwright.
+
+    Preserves post kind so `trending` posts go through the banner template
+    instead of falling back to the devlog card.
+    """
     p = db.get(Post, post_id)
     if not p:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -137,6 +157,10 @@ def generate_image(post_id: int, db: Session = Depends(get_db)) -> PostOut:
             "content": p.content,
             "category": (p.content[:40] if p.content else "project"),
             "hashtags": p.hashtags or [],
+            "kind": (p.kind or "personal"),
+            "source_url": (p.source_url or ""),
+            "source_summary": (p.source_summary or ""),
+            "infographic": (p.image_meta or {}),
         },
     )
     if img_path is None:
@@ -218,7 +242,7 @@ def _run_generate_week(theme: str, count: int, language: str) -> None:
             post = Post(
                 date=today + timedelta(days=day_offset),
                 topic=str(p.get("topic", "Untitled")),
-                content=str(p.get("content", "")),
+                content=_strip_markdown_bold(str(p.get("content", ""))),
                 hashtags=list(p.get("hashtags", []) or []),
                 image_prompt=p.get("image_prompt"),
                 status="draft",
@@ -330,24 +354,26 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
             _TRENDING_STATE["error"] = "No stories found in last 24h"
             return
 
-        # 1.5) Fetch og:description from each article URL in parallel
+        # 1.5) Fetch og:description AND og:image from each article URL in parallel
         try:
-            summaries = asyncio.run(
-                fetch_summaries([s["url"] for s in stories])
+            metas = asyncio.run(
+                fetch_metas([s["url"] for s in stories])
             )
         except RuntimeError:
             import threading
             sholder: dict = {}
             def srunner():
                 sholder["v"] = asyncio.run(
-                    fetch_summaries([s["url"] for s in stories])
+                    fetch_metas([s["url"] for s in stories])
                 )
             t2 = threading.Thread(target=srunner)
             t2.start()
             t2.join()
-            summaries = sholder.get("v", {})
+            metas = sholder.get("v", {})
         for s in stories:
-            s["summary"] = summaries.get(s["url"], "")
+            m = metas.get(s["url"], {}) or {}
+            s["summary"] = m.get("summary", "")
+            s["og_image"] = m.get("image", "")
 
         # 2) Optionally clear existing draft trending posts
         if replace_drafts:
@@ -370,15 +396,28 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
         # 4) Persist posts + generate images with news template
         today = date_t.today()
         out: list[Post] = []
+        # Pair generated posts with their source story BY URL, not by list
+        # index — Claude filters/reorders, so index-based pairing mismatches
+        # og:image (og:image ends up glued to the wrong article).
+        stories_by_url = {str(s.get("url") or "").strip(): s for s in stories}
+        pair_by_item: list[dict] = []
         for i, item in enumerate(items):
-            # Pair each generated post with its source story by index (Claude
-            # is asked to preserve order). Fallback to first story if missing.
-            story = stories[i] if i < len(stories) else stories[0]
-            source_url = str(item.get("source_url") or story.get("url") or "").strip()
-            # Ensure the source URL is at the end of the content so readers can click
-            content_with_link = str(item.get("content", "")).rstrip()
+            claim_url = str(item.get("source_url") or "").strip()
+            story = stories_by_url.get(claim_url)
+            if story is None:
+                # Fallback: try positional; last resort empty dict
+                story = stories[i] if i < len(stories) else {}
+            pair_by_item.append(story)
+            source_url = claim_url or str(story.get("url") or "").strip()
+            # LinkedIn does not render markdown — strip **bold** / __bold__
+            content_with_link = _strip_markdown_bold(
+                str(item.get("content", "")).rstrip()
+            )
             if source_url and source_url not in content_with_link:
                 content_with_link = f"{content_with_link}\n\n🔗 Fuente: {source_url}"
+            # Attach og:image to image_meta so the banner template picks it up
+            og_img = str(story.get("og_image") or "").strip()
+            image_meta = {"og_image": og_img} if og_img else None
             post = Post(
                 date=today + timedelta(days=i),
                 topic=str(item.get("topic", "Untitled")),
@@ -389,6 +428,7 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
                 kind="trending",
                 source_url=source_url,
                 source_summary=str(story.get("summary") or "")[:500] or None,
+                image_meta=image_meta,
             )
             db.add(post)
             out.append(post)
@@ -397,8 +437,8 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
 
         for idx, (p, item) in enumerate(zip(out, items, strict=False)):
             db.refresh(p)
-            # Pair with original HN story for metadata
-            story = stories[idx] if idx < len(stories) else {}
+            # Use the same story we paired with above (by source_url).
+            story = pair_by_item[idx] if idx < len(pair_by_item) else {}
             try:
                 img_path = generate_post_image(
                     p.id,
@@ -413,6 +453,8 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
                         "hn_score": int(story.get("score", 0) or 0),
                         "hn_comments": int(story.get("comments", 0) or 0),
                         "hashtags": p.hashtags or [],
+                        # Pass image_meta so banner template picks up og:image
+                        "infographic": p.image_meta or {},
                     },
                 )
                 if img_path is not None:

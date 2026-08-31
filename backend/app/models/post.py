@@ -27,6 +27,9 @@ class Post(Base):
     source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Short summary of the linked article (og:description or first paragraph)
     source_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Structured metadata for the image renderer (og:image URL, style hints).
+    # For trending posts this drives the AMD-style banner template.
+    image_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

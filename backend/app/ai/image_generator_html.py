@@ -33,6 +33,282 @@ HEIGHT = 900
 PEEPO_DIR = Path(__file__).parent / "assets" / "peepos"
 
 
+@lru_cache(maxsize=128)
+def _fetch_remote_as_data_uri(url: str, timeout_s: float = 8.0) -> str:
+    """Download an image URL and return it as a `data:image/...;base64,...` URI.
+
+    Cached per URL so re-renders of the same post are instant. Returns empty
+    string on any failure — the caller falls back to the gradient banner.
+    """
+    if not url or not url.startswith("http"):
+        return ""
+    try:
+        import httpx
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            ),
+        }
+        r = httpx.get(url, headers=headers, timeout=timeout_s, follow_redirects=True)
+        if r.status_code != 200:
+            logger.warning("og:image fetch %s -> HTTP %s", url[:100], r.status_code)
+            return ""
+        ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+        if not ctype.startswith("image/"):
+            lower = url.lower()
+            for ext, mime in (
+                (".png", "image/png"),
+                (".jpg", "image/jpeg"),
+                (".jpeg", "image/jpeg"),
+                (".webp", "image/webp"),
+                (".gif", "image/gif"),
+            ):
+                if lower.split("?")[0].endswith(ext):
+                    ctype = mime
+                    break
+            else:
+                ctype = "image/jpeg"
+        if len(r.content) < 500:
+            logger.warning("og:image %s too small (%d B), skipping", url[:80], len(r.content))
+            return ""
+        b64 = base64.b64encode(r.content).decode("ascii")
+        return f"data:{ctype};base64,{b64}"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("og:image fetch failed for %s: %s", url[:100], exc)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Outline SVG icon library (heroicons-style, stroke-only) — used by banner
+# fallback and other templates.
+# ---------------------------------------------------------------------------
+_SVG_ICONS: dict[str, str] = {
+    "code":      '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+    "server":    '<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/>',
+    "cloud":     '<path d="M17 17h2a4 4 0 0 0 0-8 6 6 0 0 0-11.5-1.5A4.5 4.5 0 0 0 7 17h1"/>',
+    "shield":    '<path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/>',
+    "database":  '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/>',
+    "cpu":       '<rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/><rect x="10" y="10" width="4" height="4"/>',
+    "api":       '<path d="M4 7h16M4 12h16M4 17h7"/><circle cx="17" cy="17" r="3"/>',
+    "lock":      '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    "git":       '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M6 12h2a4 4 0 0 0 4-4M12 8a4 4 0 0 1 4 4"/>',
+    "package":   '<path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/>',
+    "rocket":    '<path d="M5 13l-2 7 7-2 11-11a2 2 0 0 0-3-3L7 15"/><circle cx="14" cy="10" r="1.5"/>',
+    "bug":       '<path d="M9 7h6M8 11h8M8 15h8M9 7a3 3 0 0 1 6 0M5 11h3M16 11h3M5 16h3M16 16h3M12 7v14"/>',
+    "warning":   '<path d="M12 3 2 21h20Z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17.5" r="0.6" fill="currentColor"/>',
+    "users":     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13A4 4 0 0 1 16 11"/>',
+    "browser":   '<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><circle cx="7" cy="6.5" r="0.5" fill="currentColor"/><circle cx="9" cy="6.5" r="0.5" fill="currentColor"/>',
+    "lightning": '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    "ai":        '<path d="M9 4h6M12 4v3M5 9a7 7 0 1 0 14 0M9 12h6M10 16h4"/>',
+    "chip":      '<rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>',
+    "check":     '<polyline points="20 6 9 17 4 12"/>',
+    "star":      '<polygon points="12 2 15.1 8.6 22 9.3 17 14.2 18.2 21 12 17.8 5.8 21 7 14.2 2 9.3 8.9 8.6 12 2"/>',
+}
+
+
+def _svg_icon(name: str, size: int = 18, stroke: str = "#FFFFFF", sw: float = 1.8) -> str:
+    """Return an inline SVG element for the named icon."""
+    body = _SVG_ICONS.get(name) or _SVG_ICONS.get("code")
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+        f'stroke="{stroke}" stroke-width="{sw}" stroke-linecap="round" '
+        f'stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">{body}</svg>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# BANNER template (AMD-style hero card): og:image or category-tinted gradient.
+# Used for ALL trending news posts. 1080x1080 square (LinkedIn-optimised).
+# ---------------------------------------------------------------------------
+_BANNER_ACCENT_BY_CAT: dict[str, tuple[str, str, str]] = {
+    # (accent_hex, accent_rgba_soft, icon_name)
+    "ai":       ("#A855F7", "168, 85, 247",  "chip"),
+    "python":   ("#3B82F6", "59, 130, 246",  "code"),
+    "sysadmin": ("#10B981", "16, 185, 129",  "server"),
+    "frontend": ("#F59E0B", "245, 158, 11",  "browser"),
+    "project":  ("#22D3EE", "34, 211, 238",  "rocket"),
+    "career":   ("#A3E635", "163, 230, 53",  "star"),
+}
+
+
+def _build_news_banner(
+    topic: str, hook: str, author: dict,
+    source_url: str, og_image_url: str, source_summary: str = "",
+    category: str = "project",
+) -> str:
+    """1080x1080 square banner: source hero image + minimal overlay.
+    When og_image_url is empty (or fetch fails), renders a gradient fallback
+    with a category-tinted glowing icon."""
+    src_domain = ""
+    if source_url:
+        m = re.search(r"https?://([^/]+)", source_url)
+        if m:
+            src_domain = m.group(1).replace("www.", "")
+
+    summary = (source_summary or hook or "").strip()
+    if len(summary) > 200:
+        summary = summary[:197].rsplit(" ", 1)[0] + "…"
+
+    accent, accent_rgb, icon_name = _BANNER_ACCENT_BY_CAT.get(
+        category, _BANNER_ACCENT_BY_CAT["project"]
+    )
+
+    # Pre-download og:image and embed as data: URI so Playwright never has to
+    # wait on the network during render. Empty string on failure -> gradient.
+    og_data_uri = _fetch_remote_as_data_uri(og_image_url) if og_image_url else ""
+    if og_data_uri:
+        hero_style = (
+            f"background-image: url('{og_data_uri}');"
+            " background-size: cover; background-position: center;"
+            " background-color: #131722;"
+        )
+        hero_inner = ""
+    else:
+        if og_image_url:
+            logger.warning(
+                "og:image inline fetch failed for %s -- gradient fallback",
+                og_image_url[:100],
+            )
+        hero_style = (
+            f"background:"
+            f" radial-gradient(circle at 30% 40%, rgba({accent_rgb}, 0.35) 0%, transparent 55%),"
+            f" radial-gradient(circle at 75% 65%, rgba({accent_rgb}, 0.18) 0%, transparent 60%),"
+            " linear-gradient(135deg, #0F1420 0%, #131722 50%, #0A0D14 100%);"
+        )
+        big_icon = _svg_icon(icon_name, size=240, stroke=accent, sw=1.2)
+        hero_inner = f'<div class="hero-icon">{big_icon}</div>'
+
+    return f"""<!doctype html>
+<html lang="es"><head><meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html, body {{ width: 1080px; height: 1080px; }}
+  body {{
+    background: #090B10; color: #FFFFFF;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    position: relative; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }}
+  .hero {{
+    position: absolute; inset: 0 0 auto 0;
+    height: 620px;
+    {hero_style}
+  }}
+  .hero-icon {{
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    filter: drop-shadow(0 0 40px {accent}88);
+    opacity: 0.85;
+  }}
+  .hero::after {{
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg,
+      rgba(9, 11, 16, 0.0) 0%,
+      rgba(9, 11, 16, 0.15) 45%,
+      rgba(9, 11, 16, 0.85) 85%,
+      #090B10 100%);
+  }}
+  .badge {{
+    position: absolute;
+    top: 36px; left: 36px;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    background: rgba(9, 11, 16, 0.72);
+    backdrop-filter: blur(8px);
+    color: {accent};
+    border: 1px solid rgba({accent_rgb}, 0.4);
+    border-radius: 8px;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    z-index: 3;
+  }}
+  .badge::before {{
+    content: ''; width: 7px; height: 7px;
+    border-radius: 50%; background: {accent};
+    box-shadow: 0 0 12px {accent};
+  }}
+  .domain-chip {{
+    position: absolute;
+    top: 36px; right: 36px;
+    padding: 8px 14px;
+    background: rgba(9, 11, 16, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid #252B36;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: #C6CDD9;
+    z-index: 3;
+  }}
+  .content {{
+    position: absolute;
+    left: 40px; right: 40px; bottom: 120px;
+    z-index: 2;
+  }}
+  h1.title {{
+    font-size: 54px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.02;
+    color: #FFFFFF;
+    max-width: 1000px;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+  }}
+  .summary {{
+    font-size: 20px;
+    color: #E5E9F0;
+    margin-top: 18px;
+    max-width: 960px;
+    line-height: 1.45;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+  }}
+  .foot {{
+    position: absolute;
+    left: 40px; right: 40px; bottom: 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 20px;
+    border-top: 1px solid #252B36;
+    z-index: 2;
+  }}
+  .signature {{ display: flex; align-items: center; gap: 12px; }}
+  .avatar {{
+    width: 44px; height: 44px; border-radius: 50%;
+    background: linear-gradient(135deg, {accent}, #8B5CF6);
+    color: #0a0a0f;
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 14px;
+  }}
+  .me .n {{ font-size: 15px; font-weight: 700; color: #FFFFFF; line-height: 1; }}
+  .me .h {{ font-size: 11px; color: #C6CDD9; margin-top: 4px; }}
+  .portfolio {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: {accent}; font-weight: 700;
+  }}
+</style></head><body>
+  <div class="hero">{hero_inner}</div>
+  <div class="badge">Trending Tech · 24h</div>
+  <div class="domain-chip">via {escape(src_domain or 'news.ycombinator.com')}</div>
+  <div class="content">
+    <h1 class="title">{escape(topic)}</h1>
+    <div class="summary">{escape(summary)}</div>
+  </div>
+  <div class="foot">
+    <div class="signature">
+      <div class="avatar">{escape(author["initials"])}</div>
+      <div class="me">
+        <div class="n">{escape(author["name"])}</div>
+        <div class="h">{escape(author["title"])}</div>
+      </div>
+    </div>
+    <div class="portfolio">{escape(author["portfolio"])}</div>
+  </div>
+</body></html>"""
+
+
 def _author_info() -> dict[str, str]:
     """Reads name/title/portfolio from cv_master.json so generated images
     are personalized to whoever runs this instance. Falls back to placeholders."""
@@ -678,7 +954,12 @@ def _build_html(topic: str, content: str, category: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _render_with_playwright(html: str, output_path: Path) -> bool:
+def _render_with_playwright(
+    html: str,
+    output_path: Path,
+    viewport_w: int = WIDTH,
+    viewport_h: int = HEIGHT,
+) -> bool:
     if shutil.which("npx") is None:
         logger.warning("npx not found, cannot render HTML images")
         return False
@@ -693,7 +974,7 @@ def _render_with_playwright(html: str, output_path: Path) -> bool:
             "playwright",
             "screenshot",
             "--viewport-size",
-            f"{WIDTH},{HEIGHT}",
+            f"{viewport_w},{viewport_h}",
             "--wait-for-timeout=1100",  # Google Fonts time to load
             tmp_html.as_uri(),
             str(output_path),
@@ -728,22 +1009,29 @@ def generate_post_image_html(post_id: int, post_data: dict[str, Any]) -> Path | 
         out_dir.mkdir(parents=True, exist_ok=True)
         output_path = out_dir / f"post_{post_id}.png"
 
+        viewport_w, viewport_h = WIDTH, HEIGHT
         if kind == "trending":
             source_url = (post_data.get("source_url") or "").strip()
             original_title = (post_data.get("original_title") or "").strip()
             source_summary = (post_data.get("source_summary") or "").strip()
             hn_score = int(post_data.get("hn_score") or 0)
             hn_comments = int(post_data.get("hn_comments") or 0)
+            infographic = post_data.get("infographic")
+            hook_override = (post_data.get("hook") or "").strip()
             html = _build_news_html(
                 topic, content, category, source_url,
                 original_title=original_title,
                 source_summary=source_summary,
                 hn_score=hn_score, hn_comments=hn_comments,
+                infographic=infographic if isinstance(infographic, dict) else None,
+                hook_override=hook_override,
             )
+            # AMD-style banner is always 1080x1080 (square).
+            viewport_w, viewport_h = 1080, 1080
         else:
             html = _build_html(topic, content, category)
 
-        ok = _render_with_playwright(html, output_path)
+        ok = _render_with_playwright(html, output_path, viewport_w, viewport_h)
         if not ok:
             return None
         logger.info(
@@ -779,12 +1067,44 @@ def _build_news_html(
     source_summary: str = "",
     hn_score: int = 0,
     hn_comments: int = 0,
+    infographic: dict | None = None,
+    hook_override: str = "",
 ) -> str:
-    """Trending template — browser-preview card style.
+    """Trending dispatcher — routes to the AMD-style banner template.
 
-    Shows the ORIGINAL article (domain + title + HN stats) — not a copy of
-    the post text. The post text + image complement each other on LinkedIn.
+    All trending posts use the banner (hero og:image + minimal overlay). If
+    og:image cannot be fetched, falls back to a category-tinted gradient with
+    a glowing icon. Personal setup — image + LinkedIn text complement each
+    other in the feed.
     """
+    # AMD-style banner as unified template for all trending news.
+    og_image = ""
+    if isinstance(infographic, dict):
+        og_image = str(infographic.get("og_image", "")).strip()
+    logger.info("news template: banner (unified, og_image=%s)", bool(og_image))
+    hook = hook_override or (source_summary or original_title or topic)
+    return _build_news_banner(
+        topic=topic,
+        hook=hook,
+        author=_author_info(),
+        source_url=source_url,
+        og_image_url=og_image,
+        source_summary=source_summary,
+        category=category,
+    )
+
+
+def _build_news_html_legacy(
+    topic: str,
+    content: str,
+    category: str,
+    source_url: str = "",
+    original_title: str = "",
+    source_summary: str = "",
+    hn_score: int = 0,
+    hn_comments: int = 0,
+) -> str:
+    """Legacy browser-preview card template (kept as reference)."""
     accent = "#ec4899"          # magenta
     accent_2 = "#8b5cf6"        # violet
     accent_soft = "rgba(236, 72, 153, 0.15)"
