@@ -242,7 +242,12 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
         secs_of_day = now.hour * 3600 + now.minute * 60 + now.second
         desc_key = f"{86400 - secs_of_day:05d}"
         hhmmss = now.strftime("%H-%M-%S")
-        safe_company = re.sub(r"[^A-Za-z0-9]+", "_", (job.company or "unknown")).strip("_")
+        # Unicode-aware slug: keep ñÑ, accents, letters, digits and hyphens.
+        # \w already matches Unicode letters (re.UNICODE is default on py3).
+        # Whitespace and other punctuation collapse into single underscore.
+        safe_company = re.sub(
+            r"[^\w-]+", "_", (job.company or "unknown"), flags=re.UNICODE
+        ).strip("_")
         app_dir = (
             Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
             / now.date().isoformat()
