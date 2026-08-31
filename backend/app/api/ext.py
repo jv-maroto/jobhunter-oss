@@ -38,6 +38,8 @@ def get_profile() -> dict:
     # backend/app/data/cv_master.json (or via /settings page in the dashboard).
     prefs = cv.get("search_preferences", {}) or {}
     narratives = cv.get("narratives", {}) or {}
+    education = cv.get("education") or []
+    top_education = education[0] if education else {}
     return {
         "first_name": first,
         "last_name": last,
@@ -50,6 +52,17 @@ def get_profile() -> dict:
         "location": personal.get("location_short", ""),
         "city": personal.get("city", ""),
         "country": personal.get("country", ""),
+        "academic_degree": (
+            personal.get("academic_degree")
+            or top_education.get("degree_en")
+            or top_education.get("degree_es")
+            or ""
+        ),
+        "graduation_date": (
+            personal.get("graduation_date")
+            or top_education.get("graduation_date")
+            or top_education.get("year", "")
+        ),
         "current_role": cv.get("experience", [{}])[0].get("role", "") if cv.get("experience") else "",
         "current_company": cv.get("experience", [{}])[0].get("company", "") if cv.get("experience") else "",
         "years_experience": str(cv.get("years_experience", "")),

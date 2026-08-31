@@ -222,6 +222,23 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
         cv_task, cover_task
     )
 
+    # Copy PDFs to a human-friendly export folder (~/.../cvs-out/) so the user
+    # can grab them with a readable name for email/upload. Local personal setup.
+    try:
+        import shutil, re
+        from datetime import date as _d
+        cvs_out = Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
+        cvs_out.mkdir(parents=True, exist_ok=True)
+        safe_company = re.sub(r"[^A-Za-z0-9]+", "_", (job.company or "unknown")).strip("_")
+        stamp = _d.today().isoformat()
+        prefix = f"{safe_company}_{stamp}_job{job.id}"
+        if pdf_cv and Path(pdf_cv).exists():
+            shutil.copy2(pdf_cv, cvs_out / f"{prefix}_cv.pdf")
+        if pdf_cover and Path(pdf_cover).exists():
+            shutil.copy2(pdf_cover, cvs_out / f"{prefix}_cover.pdf")
+    except Exception as _e:
+        logger.warning("cvs-out export failed for job %s: %s", job.id, _e)
+
     job.cv_path = str(pdf_cv)
     job.cover_letter_path = str(pdf_cover)
     if job.status == "detected":

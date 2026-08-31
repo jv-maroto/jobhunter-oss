@@ -5,7 +5,8 @@ description = "Backend MVP for automated job search system"
 readme = "README.md"
 # Solo 3.12: python-jobspy pinea NUMPY==1.26.3 y regex<2025, que no tienen wheels
 # para 3.13/3.14 (en Windows falla compilando sin Visual Studio).
-requires-python = ">=3.12,<3.13"
+# Local override (Javier): permitido 3.14 en mac ARM porque los wheels existen.
+requires-python = ">=3.12,<3.15"
 authors = [{ name = "Javier Jose Maroto Dominguez", email = "javidominguez060@gmail.com" }]
 
 dependencies = [

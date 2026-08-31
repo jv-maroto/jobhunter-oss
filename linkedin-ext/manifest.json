@@ -34,9 +34,13 @@
     "https://smartapply.indeed.com/*",
     "https://*.talentclue.com/*",
     "https://talentclue.com/*",
+    "https://jobs.neclab.eu/*",
+    "https://*.neclab.eu/*",
     "http://localhost:8000/*",
+    "http://localhost:8001/*",
     "http://localhost:3000/*",
     "http://127.0.0.1:8000/*",
+    "http://127.0.0.1:8001/*",
     "http://127.0.0.1:3000/*"
   ],
   "background": {
@@ -114,7 +118,9 @@
         "https://employers.indeed.com/*",
         "https://smartapply.indeed.com/*",
         "https://*.talentclue.com/*",
-        "https://talentclue.com/*"
+        "https://talentclue.com/*",
+        "https://jobs.neclab.eu/*",
+        "https://*.neclab.eu/*"
       ],
       "js": ["content/application-autofill.js", "content/application-reporter.js"],
       "css": ["content/overlay.css"],

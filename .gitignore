@@ -52,3 +52,12 @@ Thumbs.db
 
 # Capturas/notas locales
 Captura*.png
+
+# Personal (Javier) local export folder
+cvs-out/*
+!cvs-out/README.md
+
+# Personal DB and CV master (fill your own)
+backend/jobhunter.db
+backend/data/
+backend/.env

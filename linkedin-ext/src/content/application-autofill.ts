@@ -29,6 +29,8 @@ type FieldKey =
   | "location"
   | "city"
   | "country"
+  | "academic_degree"
+  | "graduation_date"
   | "current_role"
   | "current_company"
   | "years_experience"
@@ -186,10 +188,37 @@ const RULES: FieldRule[] = [
       /\bbased in\b/i,
       /\bdonde vives\b/i,
       /\bubicaci/i,
+      /\b(?:current )?domicile\b/i,
+      /\bdomicilio\b/i,
+      /\bresidencia\b/i,
     ],
   },
   { key: "city", patterns: [/\bcity\b/i, /\btown\b/i, /\bciudad\b/i] },
   { key: "country", patterns: [/\bcountry\b/i, /\bpa[ií]s\b/i] },
+
+  // ===== education =====
+  {
+    key: "academic_degree",
+    priority: 35,
+    patterns: [
+      /\bacademic degree\b/i,
+      /\bhighest (?:degree|qualification|education)\b/i,
+      /\bdegree (?:name|obtained)\b/i,
+      /\bfield of study\b/i,
+      /\bt[íi]tulo (?:acad[ée]mico|universitario)\b/i,
+      /\btitulaci[óo]n\b/i,
+    ],
+  },
+  {
+    key: "graduation_date",
+    priority: 35,
+    patterns: [
+      /\b(?:estimated |expected )?graduation date\b/i,
+      /\bgraduation year\b/i,
+      /\bexpected graduation\b/i,
+      /\bfecha de graduaci[óo]n\b/i,
+    ],
+  },
 
   // ===== employment =====
   {
