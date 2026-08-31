@@ -84,6 +84,13 @@ def get_profile() -> dict:
         "backend_showcase": narratives.get("backend_showcase", ""),
         "production_system_story": narratives.get("production_system_story", ""),
         "cover_letter_generic": narratives.get("cover_letter", ""),
+        # Screening / motivation narratives — company-specific forms often ask
+        # these directly. Templates are editable in cv_master.json > narratives.
+        "why_this_company": narratives.get("why_this_company", ""),
+        "impactful_project": narratives.get("impactful_project", ""),
+        "success_measurement": narratives.get("success_measurement", ""),
+        "used_our_product": narratives.get("used_our_product", ""),
+        "mission_alignment": narratives.get("mission_alignment", ""),
     }
 
 

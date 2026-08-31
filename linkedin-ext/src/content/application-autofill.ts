@@ -46,6 +46,12 @@ type FieldKey =
   | "backend_showcase"
   | "production_system_story"
   | "cover_letter_generic"
+  // Screening / motivation narratives (specific-company forms)
+  | "why_this_company"
+  | "impactful_project"
+  | "success_measurement"
+  | "used_our_product"
+  | "mission_alignment"
   // Synthetic keys: do not match anything in Profile, value is provided inline.
   | "__skip__"
   | "__answer_no__"
@@ -344,6 +350,84 @@ const RULES: FieldRule[] = [
       /\bmessage to (?:employer|hiring|the team)\b/i,
       /\bquieres trabajar\b/i,
       /\bpor qu[ée] (?:te interesa|quieres|aplicas)\b/i,
+    ],
+  },
+
+  // ===== Screening / motivation narratives =====
+  // Higher priority than cover_letter_generic — these are more specific.
+  {
+    key: "why_this_company",
+    priority: 60,
+    patterns: [
+      // "Why <Company>" — captures the pattern with any capitalised word after
+      /\bwhy (?:do you (?:want to work at |wanna work at )?)?[A-Z][a-zA-Z]{2,}\b/,
+      /\bwhy (?:us|here)\b/i,
+      /\bwhy (?:did|do) you (?:choose|pick|apply to) (?:us|our company)\b/i,
+      /\bwhy (?:this|our) (?:company|team|organisation|organization)\b/i,
+      /\bwhy (?:now|this time)\b/i,
+      /\bpor qu[ée] (?:nosotros|esta empresa|este equipo|este momento|ahora)\b/i,
+      /\bpor qu[ée] .*(?:elegido|elegiste|escogiste)\b/i,
+    ],
+  },
+  {
+    key: "impactful_project",
+    priority: 60,
+    patterns: [
+      /\bmost (?:impactful|impressive|meaningful|significant|complex|challenging|proud) (?:project|thing|work)\b/i,
+      /\bproudest (?:project|achievement|work|moment)\b/i,
+      /\bwhat.{0,20}(?:best|greatest|most impressive) (?:project|work|thing) you.{0,20}(?:built|shipped|made)\b/i,
+      /\byour (?:best|biggest|proudest) (?:work|project|achievement)\b/i,
+      /\bwhat.{0,40}have you (?:built|shipped)\b/i,
+      /\bwhat.{0,15}(?:specific )?contribution\b/i,
+      /\bwhat did you (?:specifically )?(?:build|do|contribute)\b/i,
+      /\bproyecto (?:m[áa]s|de) mayor impacto\b/i,
+      /\btu (?:mejor|mayor) proyecto\b/i,
+      /\bqu[ée] has construido\b/i,
+      /\bcu[áa]l fue tu contribuci[óo]n\b/i,
+    ],
+  },
+  {
+    key: "success_measurement",
+    priority: 60,
+    patterns: [
+      /\bhow (?:did |do )?you (?:know|measure) (?:it|that|the project)? ?(?:worked|was successful|succeeded)\b/i,
+      /\bhow (?:did|do) you (?:define|measure|track) success\b/i,
+      /\bwhat.{0,30}success (?:look like|meant|was)\b/i,
+      /\bhow was (?:the |real )?success\b/i,
+      /\bwhat.{0,15}(?:metrics|kpis|indicators)\b/i,
+      /\bhow (?:did |do )?you know (?:it|that|the (?:solution|feature)) (?:actually )?(?:worked|delivered|landed)\b/i,
+      /\bc[óo]mo supiste que funcionaba\b/i,
+      /\bc[óo]mo (?:mides|mediste) el [ée]xito\b/i,
+      /\bqu[ée] tal fue el [ée]xito\b/i,
+    ],
+  },
+  {
+    key: "used_our_product",
+    priority: 60,
+    patterns: [
+      // "Have you used <Product>" — anything followed by "used" and a proper noun
+      /\bhave you (?:ever )?used (?:us|our product|our (?:api|platform|tool|service|sdk)|[A-Z][a-zA-Z]{2,})\b/,
+      /\bare you (?:a )?(?:user|customer) of\b/i,
+      /\bdo you use (?:our|us|[A-Z][a-zA-Z]{2,})\b/,
+      /\bexperience (?:with|using) (?:our|us|[A-Z][a-zA-Z]{2,}) (?:api|platform|product|tool|sdk)?\b/,
+      /\bhas (?:tocado|usado|utilizado|probado) (?:nuestro|nuestra|el producto|la (?:api|plataforma))\b/i,
+      /\b(?:has|hab[ée]is) utilizado\b/i,
+      /\bproyecto personal o paralelo\b/i,
+    ],
+  },
+  {
+    key: "mission_alignment",
+    priority: 60,
+    patterns: [
+      /\bmission (?:alignment|resonat|fit)\b/i,
+      /\b(?:how|why) does (?:our|the company['’]?s?) mission (?:resonate|align|matter)\b/i,
+      /\b(?:how do|why do) (?:our|the) values (?:resonate|align|matter)\b/i,
+      /\balign (?:with )?(?:our|the) mission\b/i,
+      /\b(?:personal|professional) values\b/i,
+      /\bwhy is (?:our|this) mission important to you\b/i,
+      /\bmisi[óo]n .*(?:resonar|encaja|alinea|coincide)\b/i,
+      /\bvalores (?:personales|profesionales)\b/i,
+      /\bpor qu[ée] .*misi[óo]n\b/i,
     ],
   },
 ];
