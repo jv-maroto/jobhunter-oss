@@ -9,12 +9,12 @@
  */
 
 import * as React from "react";
-import { Flame, RefreshCcw, ExternalLink } from "lucide-react";
+import { Flame, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PostCard } from "@/components/posts/PostCard";
+import { WeekScheduler } from "@/components/posts/WeekScheduler";
 import { usePosts } from "@/hooks/usePosts";
 import { api } from "@/lib/api";
 
@@ -225,24 +225,9 @@ export default function NoticiasPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {drafts.map((p) => (
-                <div key={p.id} className="space-y-2">
-                  <PostCard post={p} />
-                  {p.source_url && (
-                    <a
-                      href={p.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-[hsl(var(--accent-1))] mono"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      fuente
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
+            /* WeekScheduler: click en cada tarjeta abre modal con imagen,
+             * descargar, editar contenido, programar y Copy & Open LinkedIn. */
+            <WeekScheduler posts={drafts} />
           )}
         </CardContent>
       </Card>
