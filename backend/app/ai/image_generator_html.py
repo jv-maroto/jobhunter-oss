@@ -146,9 +146,13 @@ def _build_news_banner(
         if m:
             src_domain = m.group(1).replace("www.", "")
 
+    # Tighter cut — shorter is punchier on the banner (LinkedIn thumbnail).
     summary = (source_summary or hook or "").strip()
-    if len(summary) > 200:
-        summary = summary[:197].rsplit(" ", 1)[0] + "…"
+    if len(summary) > 150:
+        summary = summary[:147].rsplit(" ", 1)[0] + "…"
+    # Trim topic to a punchy length — very long titles kill the banner impact.
+    if len(topic) > 70:
+        topic = topic[:67].rsplit(" ", 1)[0] + "…"
 
     accent, accent_rgb, icon_name = _BANNER_ACCENT_BY_CAT.get(
         category, _BANNER_ACCENT_BY_CAT["project"]
@@ -250,21 +254,22 @@ def _build_news_banner(
     z-index: 2;
   }}
   h1.title {{
-    font-size: 54px;
-    font-weight: 800;
-    letter-spacing: -0.025em;
-    line-height: 1.02;
+    font-size: 68px;
+    font-weight: 900;
+    letter-spacing: -0.035em;
+    line-height: 0.98;
     color: #FFFFFF;
     max-width: 1000px;
-    text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    text-shadow: 0 2px 24px rgba(0,0,0,0.65);
   }}
   .summary {{
-    font-size: 20px;
-    color: #E5E9F0;
-    margin-top: 18px;
+    font-size: 22px;
+    color: #F1F5FA;
+    margin-top: 20px;
     max-width: 960px;
-    line-height: 1.45;
-    text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+    line-height: 1.4;
+    font-weight: 500;
+    text-shadow: 0 1px 10px rgba(0,0,0,0.65);
   }}
   .foot {{
     position: absolute;
