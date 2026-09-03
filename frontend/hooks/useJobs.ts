@@ -114,3 +114,20 @@ export function useUpdateJobStatus() {
     },
   });
 }
+
+export function useDeleteJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      api<{ deleted: boolean; job_id: number; applications: number }>(
+        `/jobs/${id}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+      qc.invalidateQueries({ queryKey: ["metrics"] });
+      qc.invalidateQueries({ queryKey: ["applications"] });
+    },
+  });
+}

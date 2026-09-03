@@ -4,12 +4,14 @@ import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatSalary } from "@/lib/utils";
+import { JobActionsMenu } from "@/components/jobs/JobActionsMenu";
 
 export function JobCard({
   job,
   compact = false,
   onAdvance,
   advanceLabel,
+  showActions = true,
 }: {
   job: Job;
   compact?: boolean;
@@ -17,6 +19,8 @@ export function JobCard({
   onAdvance?: () => void;
   /** Tooltip on the advance button (e.g. "Move to Applied"). */
   advanceLabel?: string;
+  /** Show the "•••" menu with move-to-any-status + delete. Default: true. */
+  showActions?: boolean;
 }) {
   return (
     <Card
@@ -82,20 +86,23 @@ export function JobCard({
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <ScoreBadge score={job.match_score ?? 0} size="md" />
-          {onAdvance && (
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAdvance();
-              }}
-              title={advanceLabel ?? "Next stage"}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--accent-1))]/40 bg-[hsl(var(--accent-1))]/10 text-[hsl(var(--accent-1))] hover:bg-[hsl(var(--accent-1))]/20 hover:border-[hsl(var(--accent-1))]/60 transition-colors"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {showActions && <JobActionsMenu job={job} />}
+            {onAdvance && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdvance();
+                }}
+                title={advanceLabel ?? "Next stage"}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--accent-1))]/40 bg-[hsl(var(--accent-1))]/10 text-[hsl(var(--accent-1))] hover:bg-[hsl(var(--accent-1))]/20 hover:border-[hsl(var(--accent-1))]/60 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </Card>

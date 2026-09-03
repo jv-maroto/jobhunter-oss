@@ -37,6 +37,7 @@ from app.models.post import Post
 from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
 from app.scrapers.article_summary import fetch_metas, fetch_summaries
 from app.scrapers.hacker_news import fetch_top_hn_24h
+from app.scrapers.trending_sources import fetch_top_trending_24h
 from app.services import load_cv_master
 
 logger = logging.getLogger(__name__)
@@ -336,15 +337,18 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
 
     db = SessionLocal()
     try:
-        # 1) Fetch HN
+        # 1) Fetch trending from ALL sources (HN + Techmeme + Reddit + RSS)
+        # Ask for 2× the requested count so Claude has slack to filter down.
         try:
-            stories = asyncio.run(fetch_top_hn_24h(limit=count))
+            stories = asyncio.run(fetch_top_trending_24h(limit=max(count * 2, 30)))
         except RuntimeError:
             # If we're inside an async loop already, run in a new thread
             import threading
             holder: dict = {}
             def runner():
-                holder["v"] = asyncio.run(fetch_top_hn_24h(limit=count))
+                holder["v"] = asyncio.run(
+                    fetch_top_trending_24h(limit=max(count * 2, 30))
+                )
             t = threading.Thread(target=runner)
             t.start()
             t.join()

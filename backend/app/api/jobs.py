@@ -189,6 +189,61 @@ def patch_job(job_id: int, patch: JobPatch, db: Session = Depends(get_db)) -> Jo
     return JobOut.model_validate(job)
 
 
+@router.delete("/{job_id}")
+def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a job + all its applications + PDF files on disk.
+
+    Removes cascade-safe:
+      - Application rows for this job
+      - The application folder in data/applications/{slug}/
+      - The corresponding cvs-out subfolders (best-effort — filenames encode
+        job id, so we glob for any that end in `_job{id}` under any date dir).
+    Does NOT touch the DB row for other tables that might reference this job.
+    """
+    from app.models.application import Application
+
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    company = job.company or "unknown"
+    app_rows = db.execute(
+        select(Application).where(Application.job_id == job_id)
+    ).scalars().all()
+
+    # Delete DB rows first (transactional)
+    for a in app_rows:
+        db.delete(a)
+    db.delete(job)
+    db.commit()
+
+    # Best-effort file cleanup — never fails the request
+    try:
+        slug = _company_slug(company, job_id)
+        app_dir = settings.data_path / "applications" / slug
+        if app_dir.exists():
+            import shutil
+            shutil.rmtree(app_dir, ignore_errors=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to remove application folder for job %s: %s", job_id, e)
+
+    try:
+        # cvs-out/YYYY-MM-DD/{key}_{HH-MM-SS}_{Company}_job{id}/
+        cvs_out = Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
+        if cvs_out.exists():
+            import shutil
+            for day_dir in cvs_out.iterdir():
+                if not day_dir.is_dir():
+                    continue
+                for sub in day_dir.iterdir():
+                    if sub.is_dir() and sub.name.endswith(f"_job{job_id}"):
+                        shutil.rmtree(sub, ignore_errors=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to remove cvs-out folders for job %s: %s", job_id, e)
+
+    return {"deleted": True, "job_id": job_id, "applications": len(app_rows)}
+
+
 @router.post("/{job_id}/prepare-application", response_model=PrepareApplicationOut)
 async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> PrepareApplicationOut:
     job = db.get(Job, job_id)
