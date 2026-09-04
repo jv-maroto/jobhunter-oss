@@ -137,6 +137,11 @@ export function KanbanBoard({ initial }: { initial: Record<JobStatus, Job[]> }) 
       sensors={sensors}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      // Autoscroll off: default dnd-kit autoscroll makes long columns jump to
+      // the bottom when the pointer nears the edge. Very disruptive in a
+      // pipeline with long "Prepared" / "Applied" columns. User can still
+      // scroll manually while dragging.
+      autoScroll={false}
     >
       <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
         {JOB_STATUSES.map((s) => (

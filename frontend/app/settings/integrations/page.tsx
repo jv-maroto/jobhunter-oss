@@ -34,17 +34,29 @@ function GmailCard() {
 
   const connected = status?.connected;
 
+  const [connectError, setConnectError] = React.useState<string>("");
   async function doConnect() {
+    setConnectError("");
     if (!email || !pwd) {
       toast.error("Email y app-password requeridos");
       return;
     }
+    // Strip any spaces the user may have pasted from Google's UI
+    const cleanPwd = pwd.replace(/\s+/g, "");
     try {
-      await connectImap.mutateAsync({ email, app_password: pwd });
+      await connectImap.mutateAsync({ email, app_password: cleanPwd });
       toast.success("Gmail conectado");
       setPwd("");
-    } catch {
-      toast.error("No se pudo conectar (revisa el app-password / 2FA)");
+      setConnectError("");
+    } catch (e) {
+      // The backend now returns a human-readable diagnostic in `detail`.
+      const detail = String(
+        (e as { detail?: string; message?: string })?.detail
+        ?? (e as Error)?.message
+        ?? "",
+      );
+      setConnectError(detail || "No se pudo conectar. Revisa el app-password y que la 2FA esté activada.");
+      toast.error("No se pudo conectar a Gmail");
     }
   }
 
@@ -93,19 +105,68 @@ function GmailCard() {
           </>
         ) : (
           <>
-            <Input placeholder="tu-email@gmail.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs space-y-2">
+              <div className="font-semibold text-amber-200">
+                Cómo generar el App Password (Google lo pide desde 2022)
+              </div>
+              <ol className="list-decimal pl-5 text-amber-100/90 space-y-1">
+                <li>
+                  Activa la <b>Verificación en 2 pasos</b> en{" "}
+                  <a
+                    href="https://myaccount.google.com/signinoptions/two-step-verification"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-amber-100"
+                  >
+                    myaccount.google.com
+                  </a>{" "}
+                  si aún no está activa.
+                </li>
+                <li>
+                  Ve a{" "}
+                  <a
+                    href="https://myaccount.google.com/apppasswords"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-amber-100"
+                  >
+                    myaccount.google.com/apppasswords
+                  </a>{" "}
+                  y crea una nueva con nombre "JobHunter".
+                </li>
+                <li>
+                  Google te da <b>16 caracteres con espacios</b> (formato{" "}
+                  <span className="mono">xxxx xxxx xxxx xxxx</span>). Pégala aquí — el
+                  formulario te quita los espacios automáticamente.
+                </li>
+                <li>
+                  NO uses tu contraseña normal de Gmail — Google la rechazará.
+                </li>
+              </ol>
+            </div>
+            <Input
+              placeholder="tu-email@gmail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
             <Input
               type="password"
-              placeholder="contraseña de aplicación (16 caracteres)"
+              placeholder="App Password (16 caracteres, con o sin espacios)"
               value={pwd}
               onChange={(e) => setPwd(e.target.value)}
+              autoComplete="current-password"
             />
             <Button variant="solid" onClick={doConnect} disabled={connectImap.isPending}>
               {connectImap.isPending ? "Conectando…" : "Conectar Gmail"}
             </Button>
-            <p className="text-[11px] text-muted-foreground">
-              Crea una app-password en myaccount.google.com → Seguridad → Contraseñas de aplicaciones.
-              Solo se leen correos relevantes; nunca se borran ni modifican.
+            {connectError && (
+              <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-100 whitespace-pre-line">
+                {connectError}
+              </div>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Solo se leen correos relevantes (recruiters, ATS). Nunca se borran ni modifican.
             </p>
           </>
         )}

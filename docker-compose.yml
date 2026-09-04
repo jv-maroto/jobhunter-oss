@@ -1,0 +1,63 @@
+# JobHunter — local one-shot bringup.
+#
+# Usage:
+#   docker compose up          # start both services
+#   docker compose up -d       # detached
+#   docker compose down        # stop
+#   docker compose logs -f     # follow logs
+#
+# Data is persisted to ./backend/data and ./backend/jobhunter.db on the host
+# so the DB survives container restarts and rebuilds.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jobhunter-backend
+    # Bind to 127.0.0.1 only — the API has no auth by design (single-user).
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite:////app/data/jobhunter.db
+      - DATA_DIR=/app/data
+      - CV_MASTER_PATH=/app/app/data/cv_master.json
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000
+    volumes:
+      # DB + generated PDFs + trending post images persist on host
+      - ./backend/jobhunter.db:/app/jobhunter.db
+      - ./backend/data:/app/data
+      # Your personal CV master (edit on host, container sees it live)
+      - ./backend/app/data/cv_master.json:/app/app/data/cv_master.json:ro
+      # CV export folder — hooked at generation time to write here
+      - ./cvs-out:/root/Documentos/Proyectos/jobhunter/cvs-out
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: jobhunter-frontend
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    restart: unless-stopped

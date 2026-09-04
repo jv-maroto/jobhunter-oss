@@ -44,16 +44,44 @@ class ImapGmailClient(GmailClient):
             self.account = self._email
 
     def is_connected(self) -> bool:
+        return self.check_connection() is None
+
+    def check_connection(self) -> str | None:
+        """Try to log in and return None on success or a human message on failure.
+        Distinguishes between wrong password, 2FA not enabled and app-password
+        rejected — Gmail's IMAP errors are cryptic otherwise."""
         if not (self._email and self._password):
-            return False
+            return "Falta email o app-password."
         try:
             conn = imaplib.IMAP4_SSL(IMAP_HOST)
             conn.login(self._email, self._password)
             conn.logout()
-            return True
+            return None
+        except imaplib.IMAP4.error as exc:
+            raw = str(exc).lower()
+            logger.warning("IMAP login rejected: %s", exc)
+            # Gmail rejects with these signatures depending on account state.
+            if "invalid credentials" in raw or "authentication failed" in raw:
+                return (
+                    "Google rechazó las credenciales. Causas típicas:\n"
+                    "1. Estás usando la contraseña normal de Gmail. "
+                    "Necesitas una App Password de 16 caracteres.\n"
+                    "2. La cuenta no tiene la verificación en 2 pasos activada "
+                    "(Google la exige antes de crear App Passwords).\n"
+                    "3. Copiaste la App Password con espacios — pégala junta.\n"
+                    "Genera una nueva en https://myaccount.google.com/apppasswords "
+                    "(el nombre puede ser 'JobHunter')."
+                )
+            if "web login required" in raw:
+                return (
+                    "Google pide login por web primero. Ve a "
+                    "https://accounts.google.com/DisplayUnlockCaptcha y luego "
+                    "reintenta."
+                )
+            return f"IMAP login falló: {exc}"
         except Exception as exc:  # noqa: BLE001
-            logger.warning("IMAP login fallo: %s", exc)
-            return False
+            logger.warning("IMAP connection error: %s", exc)
+            return f"No se pudo conectar a Gmail IMAP: {exc}"
 
     def fetch_recent(self, query: str, max_results: int = 50) -> list[EmailMessage]:
         # IMAP no usa la sintaxis de Gmail; filtramos por fecha + remitentes ATS.

@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { JobTable } from "@/components/jobs/JobTable";
 import { useJobs } from "@/hooks/useJobs";
-import { useQueryClient } from "@tanstack/react-query";
+import { useScrapeStatus } from "@/hooks/useScrapeStatus";
 import { api } from "@/lib/api";
 import type { JobTrack } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -30,23 +30,11 @@ import { cn } from "@/lib/utils";
 const SOURCES = ["all", "linkedin", "indeed", "remotive", "tecnoempleo", "jobspy-sysadmin"];
 const STATUS_OPTIONS = ["detected", "prepared", "applied", "interviewing", "offer"];
 
-interface ScrapeStatus {
-  running: boolean;
-  started_at: string | null;
-  finished_at: string | null;
-  scraped: number;
-  inserted: number;
-  duplicates: number;
-  error: string | null;
-}
-
 export default function JobsPage() {
   const [track, setTrack] = React.useState<JobTrack>("dev");
   const [minScore, setMinScore] = React.useState(70);
   const [source, setSource] = React.useState<string>("all");
   const [status, setStatus] = React.useState<string>("detected");
-  const [scraping, setScraping] = React.useState(false);
-  const qc = useQueryClient();
 
   const jobs = useJobs({
     min_score: minScore,
@@ -55,38 +43,9 @@ export default function JobsPage() {
     track,
   });
 
-  // Poll scrape status when a scrape is running
-  React.useEffect(() => {
-    if (!scraping) return;
-    const id = window.setInterval(async () => {
-      try {
-        const s = await api<ScrapeStatus>("/jobs/scrape-status");
-        if (!s.running) {
-          setScraping(false);
-          if (s.error) {
-            toast.error("Scrape falló", { description: s.error });
-          } else {
-            toast.success(
-              `Scrape OK · ${s.scraped} found · ${s.inserted} new`,
-              {
-                description:
-                  s.duplicates > 0
-                    ? `${s.duplicates} duplicados ignorados.`
-                    : undefined,
-                duration: 6000,
-              },
-            );
-          }
-          // Invalidate ALL job queries so /today and /pipeline also refresh
-          qc.invalidateQueries({ queryKey: ["jobs"] });
-          qc.invalidateQueries({ queryKey: ["metrics"] });
-        }
-      } catch {
-        /* network blip — keep polling */
-      }
-    }, 4000);
-    return () => window.clearInterval(id);
-  }, [scraping, jobs, qc]);
+  // Shared scrape status (persists across tab switches, polls in background,
+  // shared with /today and any other page that reads the same key).
+  const { running: scraping, refetch: refetchScrape } = useScrapeStatus();
 
   const triggerScrape = async () => {
     try {
@@ -100,7 +59,8 @@ export default function JobsPage() {
           description: "Se actualizará la lista cuando termine.",
         });
       }
-      setScraping(true);
+      // Force immediate refetch so the button flips to "Scraping…" now.
+      refetchScrape();
     } catch (e) {
       toast.error("Backend no disponible", {
         description: String(e).slice(0, 120),

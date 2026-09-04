@@ -65,9 +65,10 @@ def gmail_connect(body: GmailConnectBody) -> dict[str, Any]:
         )
         from app.integrations.gmail.imap_client import ImapGmailClient
 
-        if not ImapGmailClient().is_connected():
+        err = ImapGmailClient().check_connection()
+        if err is not None:
             store.disconnect()
-            raise HTTPException(status_code=400, detail="No se pudo iniciar sesion IMAP (¿app-password?)")
+            raise HTTPException(status_code=400, detail=err)
         store.update_state(mode="imap", account=body.email, connected_at=now)
         return _status_payload()
 
