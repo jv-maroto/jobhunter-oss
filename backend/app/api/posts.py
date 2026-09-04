@@ -8,6 +8,25 @@ from datetime import date as date_t
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+
+from app.ai.image_generator import generate_post_image as generate_post_image_pillow
+from app.ai.image_generator_html import generate_post_image_html
+from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
+from app.db import get_db
+from app.models.post import Post
+from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
+from app.scrapers.article_summary import fetch_metas
+from app.scrapers.trending_sources import fetch_top_trending_24h
+from app.services import load_cv_master
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/posts", tags=["posts"])
+
 
 _MD_BOLD_RX = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
 _MD_BOLD_UNDER_RX = re.compile(r"__(.+?)__", re.DOTALL)
@@ -22,26 +41,6 @@ def _strip_markdown_bold(text: str) -> str:
     text = _MD_BOLD_UNDER_RX.sub(r"\1", text)
     text = text.replace("**", "")
     return text
-
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
-
-from app.ai.image_generator import generate_post_image as generate_post_image_pillow
-from app.ai.image_generator_html import generate_post_image_html
-from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
-from app.db import get_db
-from app.models.post import Post
-from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
-from app.scrapers.article_summary import fetch_metas, fetch_summaries
-from app.scrapers.hacker_news import fetch_top_hn_24h
-from app.scrapers.trending_sources import fetch_top_trending_24h
-from app.services import load_cv_master
-
-logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/posts", tags=["posts"])
 
 
 def generate_post_image(post_id: int, post_data: dict) -> Path | None:

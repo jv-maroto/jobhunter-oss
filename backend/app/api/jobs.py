@@ -313,7 +313,8 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
     cvs_out_root = settings.cvs_out_path
     if cvs_out_root is not None:
         try:
-            import shutil, re
+            import re
+            import shutil
             from datetime import datetime as _dt
             now = _dt.now()
             secs_of_day = now.hour * 3600 + now.minute * 60 + now.second

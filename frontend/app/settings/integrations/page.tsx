@@ -132,7 +132,7 @@ function GmailCard() {
                   >
                     myaccount.google.com/apppasswords
                   </a>{" "}
-                  y crea una nueva con nombre "JobHunter".
+                  y crea una nueva con nombre &ldquo;JobHunter&rdquo;.
                 </li>
                 <li>
                   Google te da <b>16 caracteres con espacios</b> (formato{" "}
