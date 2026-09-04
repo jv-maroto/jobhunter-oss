@@ -151,4 +151,25 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """Basic liveness + capability probe.
+
+    Reports whether external binaries required for CV generation are actually
+    installed. Frontend can surface a warning if typst is missing — that's
+    what breaks 'Prepare application' with the 'file missing on disk' errors.
+    """
+    import shutil as _sh
+    typst_ok = _sh.which("typst") is not None
+    return {
+        "status": "ok",
+        "capabilities": {"typst": typst_ok},
+        "warnings": (
+            []
+            if typst_ok
+            else [
+                "typst binary not installed — 'Prepare application' will fail. "
+                "Install with `brew install typst` (macOS), "
+                "`winget install typst` (Windows), "
+                "or run the project with `docker compose up`."
+            ]
+        ),
+    }

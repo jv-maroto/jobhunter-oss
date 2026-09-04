@@ -274,9 +274,28 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
     cover_task = asyncio.to_thread(
         generate_cover_letter, cv_master, job_dict, hooks, out_dir, lang
     )
-    (pdf_cv, typst_src, lang), (pdf_cover, cover_content) = await asyncio.gather(
-        cv_task, cover_task
-    )
+    # gather with return_exceptions so a typst failure in either half surfaces
+    # as an HTTP 500 with the real message, instead of persisting an orphan
+    # cv_path/cover_letter_path pointing at a file that was never written.
+    from app.ai.cv_generator import CVGenerationError
+    results = await asyncio.gather(cv_task, cover_task, return_exceptions=True)
+    cv_result, cover_result = results
+    if isinstance(cv_result, CVGenerationError):
+        raise HTTPException(status_code=500, detail=f"CV generation failed: {cv_result}")
+    if isinstance(cv_result, Exception):
+        raise HTTPException(status_code=500, detail=f"CV generation crashed: {cv_result}")
+    if isinstance(cover_result, CVGenerationError):
+        raise HTTPException(status_code=500, detail=f"Cover letter generation failed: {cover_result}")
+    if isinstance(cover_result, Exception):
+        raise HTTPException(status_code=500, detail=f"Cover letter generation crashed: {cover_result}")
+    (pdf_cv, typst_src, lang) = cv_result
+    (pdf_cover, cover_content) = cover_result
+
+    # Defence-in-depth: both PDFs must exist on disk before we touch the DB.
+    if not (pdf_cv and Path(pdf_cv).exists()):
+        raise HTTPException(status_code=500, detail=f"CV PDF missing after generation: expected {pdf_cv}")
+    if not (pdf_cover and Path(pdf_cover).exists()):
+        raise HTTPException(status_code=500, detail=f"Cover PDF missing after generation: expected {pdf_cover}")
 
     # Optional: export to a human-friendly folder tree so the user can grab
     # everything per application with a readable name for email/upload.

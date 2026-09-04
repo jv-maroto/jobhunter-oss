@@ -134,8 +134,19 @@ def _compile_cover_pdf(
     out_dir: Path,
     pdf_path: Path,
 ) -> None:
+    """Compile the cover letter to PDF. Raises CVGenerationError if typst is
+    missing or compile fails — so the caller can surface a real error instead
+    of persisting a phantom cover_letter_path that later 410s."""
+    from app.ai.cv_generator import CVGenerationError
     if shutil.which("typst") is None:
-        return
+        raise CVGenerationError(
+            "typst binary not found in PATH. Install it and retry:\n"
+            "  macOS:   brew install typst\n"
+            "  Linux:   cargo install --locked typst-cli  (or download from github.com/typst/typst/releases)\n"
+            "  Windows: winget install typst  (or scoop install typst)\n"
+            "  Docker:  the bundled image already has it — use `docker compose up`\n"
+            "Cover letter PDF was not generated (the .typ source is still saved)."
+        )
     p = cv.get("personal", {})
     typst = f"""#set page(margin: 2cm, paper: \"a4\")
 #set text(font: \"Inter\", size: 11pt)
@@ -163,5 +174,19 @@ def _compile_cover_pdf(
             capture_output=True,
             timeout=60,
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.error("typst cover compile failed: %s", exc)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="ignore") if exc.stderr else ""
+        logger.error("typst cover compile failed for %s: %s", typ_file, stderr[:500])
+        raise CVGenerationError(
+            f"Typst compile of cover letter failed. Source saved at {typ_file}.\n"
+            f"typst stderr:\n{stderr[:800]}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CVGenerationError(
+            f"Typst compile of cover letter timed out (60s). Source at {typ_file}."
+        ) from exc
+
+    if not pdf_path.exists():
+        raise CVGenerationError(
+            f"Typst reported success but {pdf_path} is missing. Please report this bug."
+        )

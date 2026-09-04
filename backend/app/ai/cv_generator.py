@@ -52,6 +52,16 @@ def _ensure_typst() -> bool:
     return shutil.which("typst") is not None
 
 
+class CVGenerationError(RuntimeError):
+    """Raised when the CV PDF could not be produced.
+
+    Distinguishes 'typst not installed' / 'typst compile failed' / 'no PDF
+    written' from other errors so the API layer can return an actionable
+    HTTP error to the user instead of storing a phantom cv_path that later
+    breaks the download endpoint with 'file missing on disk'.
+    """
+
+
 # Typst interprets `@key` as a bibliography reference. Emails like
 # `foo@example.com` blow up the compile with:
 #   error: label `<example.com>` does not exist in the document
@@ -176,20 +186,40 @@ def generate_cv(
     typst_file.write_text(typst_source, encoding="utf-8")
     pdf_file = out_dir / "cv.pdf"
 
-    if _ensure_typst():
-        try:
-            subprocess.run(
-                ["typst", "compile", str(typst_file), str(pdf_file)],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as exc:
-            logger.error("Typst compile failed: %s", exc.stderr.decode(errors="ignore"))
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Typst compile error: %s", exc)
-    else:
-        logger.warning("typst binary not in PATH; PDF no generado. brew install typst")
+    if not _ensure_typst():
+        raise CVGenerationError(
+            "typst binary not found in PATH. Install it and retry:\n"
+            "  macOS:   brew install typst\n"
+            "  Linux:   cargo install --locked typst-cli  (or download from github.com/typst/typst/releases)\n"
+            "  Windows: winget install typst  (or scoop install typst)\n"
+            "  Docker:  the bundled image already has it — use `docker compose up`\n"
+            "Without typst the CV cannot be compiled to PDF."
+        )
+
+    try:
+        subprocess.run(
+            ["typst", "compile", str(typst_file), str(pdf_file)],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="ignore") if exc.stderr else ""
+        logger.error("Typst compile failed for %s: %s", typst_file, stderr[:500])
+        raise CVGenerationError(
+            f"Typst compile failed. Source saved at {typst_file} for debugging.\n"
+            f"typst stderr:\n{stderr[:800]}"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CVGenerationError(
+            f"Typst compile timed out (60s). Source at {typst_file}."
+        ) from exc
+
+    if not pdf_file.exists():
+        raise CVGenerationError(
+            f"Typst compile reported success but {pdf_file} is missing. "
+            "This is a bug — please report it."
+        )
 
     return pdf_file, typst_source, lang
 
