@@ -348,15 +348,73 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
     )
 
 
+def _resolve_pdf_path(
+    saved_path: str | None, job: Job, kind: str, db: Session
+) -> Path | None:
+    """Resolve a PDF path robustly across environment changes.
+
+    Handles the common breakage of an absolute path stored in the DB that no
+    longer exists because the user moved between local runs and Docker (paths
+    like `/app/data/...` vs `/Users/.../backend/data/...`) or renamed folders.
+
+    Resolution order:
+      1. If `saved_path` exists as-is → return it.
+      2. If it's absolute, try re-basing it into the current `settings.data_path`
+         by matching the tail after `/data/`.
+      3. Try the canonical fallback: `settings.data_path/applications/{slug}/{kind}.pdf`.
+      4. Give up → None.
+
+    If a fallback works, persist the corrected path so the next call is a
+    direct hit (self-healing).
+    """
+    if saved_path:
+        p = Path(saved_path)
+        if p.exists():
+            return p
+
+    def _persist(new_path: Path) -> Path:
+        setattr(job, "cv_path" if kind == "cv" else "cover_letter_path", str(new_path))
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        return new_path
+
+    # Try re-basing an old absolute path into the new data dir
+    if saved_path:
+        raw = saved_path.replace("\\", "/")
+        marker = "/data/"
+        if marker in raw:
+            tail = raw.split(marker, 1)[1]  # e.g. "applications/coforge/cv.pdf"
+            candidate = settings.data_path / tail
+            if candidate.exists():
+                return _persist(candidate)
+
+    # Canonical fallback: data/applications/{slug}/{kind}.pdf
+    slug = _company_slug(job.company, job.id)
+    canonical = settings.data_path / "applications" / slug / f"{kind}.pdf"
+    if canonical.exists():
+        return _persist(canonical)
+
+    return None
+
+
 @router.get("/{job_id}/cv")
 def get_cv(job_id: int, db: Session = Depends(get_db)):
     """Serve the generated CV PDF inline so the browser can preview it."""
     job = db.get(Job, job_id)
     if not job or not job.cv_path:
         raise HTTPException(status_code=404, detail="CV not generated for this job")
-    path = Path(job.cv_path)
-    if not path.exists():
-        raise HTTPException(status_code=410, detail=f"CV file missing on disk: {path}")
+    path = _resolve_pdf_path(job.cv_path, job, "cv", db)
+    if path is None:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                f"CV file missing on disk (checked '{job.cv_path}' and "
+                f"'{settings.data_path}/applications/{_company_slug(job.company, job.id)}/cv.pdf'). "
+                "Regenerate with 'Prepare application'."
+            ),
+        )
     safe_name = f"cv_{_company_slug(job.company, job.id)}.pdf"
     return FileResponse(
         path,
@@ -371,9 +429,16 @@ def get_cover_letter(job_id: int, db: Session = Depends(get_db)):
     job = db.get(Job, job_id)
     if not job or not job.cover_letter_path:
         raise HTTPException(status_code=404, detail="Cover letter not generated for this job")
-    path = Path(job.cover_letter_path)
-    if not path.exists():
-        raise HTTPException(status_code=410, detail=f"Cover file missing on disk: {path}")
+    path = _resolve_pdf_path(job.cover_letter_path, job, "cover", db)
+    if path is None:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                f"Cover file missing on disk (checked '{job.cover_letter_path}' and "
+                f"'{settings.data_path}/applications/{_company_slug(job.company, job.id)}/cover.pdf'). "
+                "Regenerate with 'Prepare application'."
+            ),
+        )
     safe_name = f"cover_{_company_slug(job.company, job.id)}.pdf"
     return FileResponse(
         path,

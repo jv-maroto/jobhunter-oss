@@ -180,9 +180,39 @@ def get_post_image(post_id: int, download: bool = False, db: Session = Depends(g
     p = db.get(Post, post_id)
     if not p or not p.image_path:
         raise HTTPException(status_code=404, detail="Post has no image yet")
+    # Resolve robustly: absolute paths saved in the DB may not exist after a
+    # move between Docker/local or a data-dir rename. Fall back to canonical
+    # location under the current settings.data_path.
+    from app.config import settings as _settings
     path = Path(p.image_path)
     if not path.exists():
-        raise HTTPException(status_code=410, detail="Image file missing on disk")
+        raw = str(p.image_path).replace("\\", "/")
+        rebased: Path | None = None
+        if "/data/" in raw:
+            tail = raw.split("/data/", 1)[1]
+            candidate = _settings.data_path / tail
+            if candidate.exists():
+                rebased = candidate
+        if rebased is None:
+            canonical = _settings.data_path / "posts" / "images" / f"post_{post_id}.png"
+            if canonical.exists():
+                rebased = canonical
+        if rebased is None:
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    f"Image file missing on disk (checked '{p.image_path}' and "
+                    f"'{_settings.data_path}/posts/images/post_{post_id}.png'). "
+                    "Regenerate with the image button in the post modal."
+                ),
+            )
+        # Self-heal the DB so next call is a direct hit
+        p.image_path = str(rebased)
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        path = rebased
     headers = {}
     if download:
         import re as _re
