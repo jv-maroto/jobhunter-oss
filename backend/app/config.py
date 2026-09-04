@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     cv_master_path: str = Field(default="./app/data/cv_master.json")
     cv_template_path: str = Field(default="./app/data/cv_template.typ")
     platforms_catalog_path: str = Field(default="./app/scrapers/platforms.json")
+    # Optional human-friendly export folder for generated CVs.
+    # When set (absolute path), the "prepare application" flow drops copies of
+    # cv.pdf, cover.pdf and message.txt under:
+    #   {cvs_out_dir}/YYYY-MM-DD/{key}_{HH-MM-SS}_{Company}_job{id}/
+    # so you can grab them by day for email/upload. Empty = feature disabled.
+    cvs_out_dir: str = Field(default="")
 
     # CORS
     cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173")
@@ -154,6 +160,14 @@ class Settings(BaseSettings):
     @property
     def cv_master_file(self) -> Path:
         return Path(self.cv_master_path).resolve()
+
+    @property
+    def cvs_out_path(self) -> Path | None:
+        """Absolute Path to the CV export folder if configured, else None.
+        The prepare-application flow drops human-named copies here."""
+        if not self.cvs_out_dir.strip():
+            return None
+        return Path(self.cvs_out_dir).expanduser().resolve()
 
     @property
     def cv_template_file(self) -> Path:

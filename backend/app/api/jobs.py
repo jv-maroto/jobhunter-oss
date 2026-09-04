@@ -229,8 +229,9 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
     try:
         # cvs-out/YYYY-MM-DD/{key}_{HH-MM-SS}_{Company}_job{id}/
-        cvs_out = Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
-        if cvs_out.exists():
+        # Only when the user has configured CVS_OUT_DIR in .env.
+        cvs_out = settings.cvs_out_path
+        if cvs_out is not None and cvs_out.exists():
             import shutil
             for day_dir in cvs_out.iterdir():
                 if not day_dir.is_dir():
@@ -277,47 +278,47 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
         cv_task, cover_task
     )
 
-    # Export to a human-friendly folder tree so the user can grab everything
-    # per application with a readable name for email/upload.
+    # Optional: export to a human-friendly folder tree so the user can grab
+    # everything per application with a readable name for email/upload.
+    # Enabled by setting CVS_OUT_DIR in .env (absolute path).
     #
-    # Structure:
-    #   cvs-out/
-    #     YYYY-MM-DD/
-    #       {desc_key}_{HH-MM-SS}_{Company}_job{id}/
-    #         cv.pdf
-    #         cover.pdf
-    #         message.txt  (cover body as plain text — paste into email)
+    # Structure inside CVS_OUT_DIR:
+    #   YYYY-MM-DD/
+    #     {desc_key}_{HH-MM-SS}_{Company}_job{id}/
+    #       cv.pdf
+    #       cover.pdf
+    #       message.txt  (cover body as plain text — paste into email)
     #
     # desc_key = 86400 - seconds_since_midnight (padded 5 digits) so a plain
     # alphabetical sort in Finder shows the newest of the day first.
-    try:
-        import shutil, re
-        from datetime import datetime as _dt
-        now = _dt.now()
-        secs_of_day = now.hour * 3600 + now.minute * 60 + now.second
-        desc_key = f"{86400 - secs_of_day:05d}"
-        hhmmss = now.strftime("%H-%M-%S")
-        # Unicode-aware slug: keep ñÑ, accents, letters, digits and hyphens.
-        # \w already matches Unicode letters (re.UNICODE is default on py3).
-        # Whitespace and other punctuation collapse into single underscore.
-        safe_company = re.sub(
-            r"[^\w-]+", "_", (job.company or "unknown"), flags=re.UNICODE
-        ).strip("_")
-        app_dir = (
-            Path.home() / "Documentos" / "Proyectos" / "jobhunter" / "cvs-out"
-            / now.date().isoformat()
-            / f"{desc_key}_{hhmmss}_{safe_company}_job{job.id}"
-        )
-        app_dir.mkdir(parents=True, exist_ok=True)
-        if pdf_cv and Path(pdf_cv).exists():
-            shutil.copy2(pdf_cv, app_dir / "cv.pdf")
-        if pdf_cover and Path(pdf_cover).exists():
-            shutil.copy2(pdf_cover, app_dir / "cover.pdf")
-        # Plain-text version of the cover for quick paste into email/DM
-        if cover_content:
-            (app_dir / "message.txt").write_text(cover_content, encoding="utf-8")
-    except Exception as _e:
-        logger.warning("cvs-out export failed for job %s: %s", job.id, _e)
+    cvs_out_root = settings.cvs_out_path
+    if cvs_out_root is not None:
+        try:
+            import shutil, re
+            from datetime import datetime as _dt
+            now = _dt.now()
+            secs_of_day = now.hour * 3600 + now.minute * 60 + now.second
+            desc_key = f"{86400 - secs_of_day:05d}"
+            hhmmss = now.strftime("%H-%M-%S")
+            # Unicode-aware slug: keep ñÑ, accents, letters, digits and hyphens.
+            safe_company = re.sub(
+                r"[^\w-]+", "_", (job.company or "unknown"), flags=re.UNICODE
+            ).strip("_")
+            app_dir = (
+                cvs_out_root
+                / now.date().isoformat()
+                / f"{desc_key}_{hhmmss}_{safe_company}_job{job.id}"
+            )
+            app_dir.mkdir(parents=True, exist_ok=True)
+            if pdf_cv and Path(pdf_cv).exists():
+                shutil.copy2(pdf_cv, app_dir / "cv.pdf")
+            if pdf_cover and Path(pdf_cover).exists():
+                shutil.copy2(pdf_cover, app_dir / "cover.pdf")
+            # Plain-text version of the cover for quick paste into email/DM
+            if cover_content:
+                (app_dir / "message.txt").write_text(cover_content, encoding="utf-8")
+        except Exception as _e:
+            logger.warning("cvs-out export failed for job %s: %s", job.id, _e)
 
     job.cv_path = str(pdf_cv)
     job.cover_letter_path = str(pdf_cover)
