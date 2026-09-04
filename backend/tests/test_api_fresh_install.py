@@ -9,7 +9,13 @@ from app.main import app
 
 def test_fresh_install_endpoints() -> None:
     with TestClient(app) as client:
-        assert client.get("/health").json() == {"status": "ok"}
+        # /health returns status + capabilities + warnings — assert on the
+        # essential contract, not exact equality (typst may or may not be in
+        # the CI runner's PATH, which changes the warnings list).
+        health = client.get("/health").json()
+        assert health["status"] == "ok"
+        assert "capabilities" in health
+        assert isinstance(health.get("warnings", []), list)
 
         # Sin cv_master.json real -> el wizard debe dispararse.
         assert client.get("/onboarding/status").json() == {"onboarded": False}
