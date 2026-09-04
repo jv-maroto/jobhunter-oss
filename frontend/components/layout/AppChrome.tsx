@@ -4,6 +4,7 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
+import { CapabilityBanner } from "@/components/layout/CapabilityBanner";
 import { useOnboardingStatus } from "@/hooks/useOnboarding";
 
 /**
@@ -26,6 +27,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="relative z-10 flex min-h-screen flex-col md:pl-[76px] min-w-0">
         <TopBar />
+        <CapabilityBanner />
         <main className="flex-1 overflow-x-hidden p-5 lg:p-6 min-w-0">{children}</main>
       </div>
     </>
