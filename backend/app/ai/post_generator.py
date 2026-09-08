@@ -153,17 +153,25 @@ def generate_trending_posts(
         ],
         ensure_ascii=False,
     )
+    # Profile is identical across calls -> put it in the system prompt so
+    # Anthropic's prompt caching (cache_control) can amortise it. The
+    # anthropic provider auto-enables cache_control once the system crosses
+    # the Haiku threshold; on Sonnet the threshold is 1024 tokens which the
+    # profile easily meets. Cuts input cost ~60% on the 2nd+ call within 5min.
     profile_block = json.dumps(profile, ensure_ascii=False)
-    user_prompt = (
-        f"language={language}\n\nprofile:\n{profile_block}\n\nstories:\n{stories_block}"
+    system_prompt = (
+        TRENDING_SYSTEM
+        + "\n\nAuthor profile (identical across every trending call):\n"
+        + profile_block
     )
+    user_prompt = f"language={language}\n\nstories:\n{stories_block}"
 
     max_tokens = min(16000, max(2000, len(stories) * 800 + 800))
     try:
         response = run_sync(
             router.complete_for(
                 tier="generation",
-                system=TRENDING_SYSTEM,
+                system=system_prompt,
                 user=user_prompt,
                 max_tokens=max_tokens,
                 temperature=0.7,
@@ -210,9 +218,15 @@ def generate_weekly_posts(
             )
 
     try:
+        # Profile is stable across every weekly generation -> system prompt
+        # so prompt caching amortises it.
+        system_prompt = (
+            POST_SYSTEM
+            + "\n\nAuthor profile (identical across weekly calls):\n"
+            + json.dumps(profile, ensure_ascii=False)
+        )
         user_prompt = (
-            "profile:\n" + json.dumps(profile, ensure_ascii=False)
-            + f"\ntheme={theme}\ncount={count}\nlanguage={language}"
+            f"theme={theme}\ncount={count}\nlanguage={language}"
             + avoid_block
         )
         # Each post is ~400-600 output tokens. Give Claude generous budget and
@@ -221,7 +235,7 @@ def generate_weekly_posts(
         response = run_sync(
             router.complete_for(
                 tier="generation",
-                system=POST_SYSTEM,
+                system=system_prompt,
                 user=user_prompt,
                 max_tokens=max_tokens,
                 temperature=0.75,  # higher temperature for variety

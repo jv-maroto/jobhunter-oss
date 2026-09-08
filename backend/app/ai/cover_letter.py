@@ -60,15 +60,26 @@ def _fallback_cover(cv: dict[str, Any], job: dict[str, Any], language: str) -> s
     )
 
 
+def _build_cacheable_system(cv_master: dict[str, Any]) -> str:
+    """COVER_SYSTEM + cv_master — the part that DOES NOT change between
+    jobs. Goes into the system prompt so prompt caching (Anthropic +
+    OpenAI both do this automatically once the system crosses ~1024 tokens)
+    amortises it. 2nd+ calls in a 5-minute window pay ~10% of the input."""
+    return (
+        COVER_SYSTEM
+        + "\n\ncv_master (identical across every cover letter call):\n"
+        + json.dumps(cv_master, ensure_ascii=False)
+    )
+
+
 def _build_user_prompt(
-    cv_master: dict[str, Any],
     job: dict[str, Any],
     hooks: list[str],
     language: str,
 ) -> str:
+    """Only the job-specific bits. cv_master lives in the system prompt."""
     return (
-        "cv_master:\n" + json.dumps(cv_master, ensure_ascii=False)
-        + f"\nlanguage={language}"
+        f"language={language}"
         + "\nhooks=" + json.dumps(hooks, ensure_ascii=False)
         + "\noferta=" + json.dumps(
             {
@@ -103,11 +114,12 @@ def generate_cover_letter(
         content = _fallback_cover(cv_master, job, language)
     else:
         try:
-            user_prompt = _build_user_prompt(cv_master, job, personalization_hooks, language)
+            system_prompt = _build_cacheable_system(cv_master)
+            user_prompt = _build_user_prompt(job, personalization_hooks, language)
             response = run_sync(
                 router.complete_for(
                     tier="generation",
-                    system=COVER_SYSTEM,
+                    system=system_prompt,
                     user=user_prompt,
                     max_tokens=1200,
                     temperature=0.4,

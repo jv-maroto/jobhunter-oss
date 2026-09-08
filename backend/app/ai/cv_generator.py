@@ -118,11 +118,25 @@ def _basic_typst_from_master(cv: dict[str, Any], template: str) -> str:
     return out
 
 
-def _build_user_prompt(cv_master: dict[str, Any], template: str, job: dict[str, Any], lang: str) -> str:
+def _build_cacheable_system(cv_master: dict[str, Any], template: str) -> str:
+    """CV_SYSTEM + cv_master + template — everything that DOES NOT change
+    between jobs. Goes into the LLM system block so prompt caching amortises
+    it (>90% discount on cached tokens for the 2nd+ call in a 5-minute
+    window on both Anthropic and OpenAI)."""
     return (
-        "cv_master:\n" + json.dumps(cv_master, ensure_ascii=False)
-        + "\n\ncv_template:\n" + template
-        + f"\n\nOferta (idioma={lang}):\n"
+        CV_SYSTEM
+        + "\n\ncv_master (identical across every CV generation):\n"
+        + json.dumps(cv_master, ensure_ascii=False)
+        + "\n\ncv_template (identical across every CV generation):\n"
+        + template
+    )
+
+
+def _build_user_prompt(job: dict[str, Any], lang: str) -> str:
+    """Only the job-specific bits go in the user prompt — the cache-friendly
+    parts (cv_master + template) live in the system prompt now."""
+    return (
+        f"Oferta (idioma={lang}):\n"
         + json.dumps(
             {
                 "title": job.get("title"),
@@ -159,11 +173,12 @@ def generate_cv(
         typst_source = _basic_typst_from_master(cv_master, template or _MINIMAL_TEMPLATE)
     else:
         try:
-            user_prompt = _build_user_prompt(cv_master, template, job, lang)
+            system_prompt = _build_cacheable_system(cv_master, template)
+            user_prompt = _build_user_prompt(job, lang)
             response = run_sync(
                 router.complete_for(
                     tier="generation",
-                    system=CV_SYSTEM,
+                    system=system_prompt,
                     user=user_prompt,
                     max_tokens=4000,
                     temperature=0.3,

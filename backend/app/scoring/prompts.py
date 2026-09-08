@@ -17,11 +17,31 @@ from typing import Any
 _OUTPUT_CONTRACT = """You are an expert job-offer evaluator. Your only task is to compare a candidate
 CV (JSON) with a job posting and return ONE JSON object with this exact shape:
 
-- match_score (0-100): how well the candidate fits the posting.
-  - 90-100: perfect fit, should apply right away.
-  - 70-89: strong fit, worth preparing a tailored application.
-  - 40-69: partial fit; apply only if there are few better options.
-  - <40: discard.
+- match_score (0-100): how well the candidate fits the posting. USE THE FULL RANGE.
+  - 90-100: exceptional match — every requirement is covered, ideal domain, ideal seniority.
+  - 75-89: strong fit — stack + role + level align, only nice-to-haves missing.
+  - 55-74: partial fit worth reviewing — core stack overlaps, some concrete gap
+    (missing 1-2 skills, mild seniority mismatch, or an unclear/incomplete posting).
+  - 35-54: weak fit — stack barely overlaps, or clearly wrong role family.
+  - <35: hard reject — different discipline, visa blocker, salary far below floor.
+
+  CALIBRATION RULES (very important — the earlier version of this prompt was
+  scoring too conservatively):
+  * START at 70 for any posting that mentions the candidate's core stack AND
+    matches at least one target role. Then subtract for concrete, named issues.
+  * When `missing_skills` is empty AND the posting matches a target role, the
+    score MUST be at least 70 unless there is an explicit deal-breaker
+    (visa, salary far below floor, seniority band off by 2+ years).
+  * When the posting is INCOMPLETE (short description, no stack listed) but the
+    title/role is on-target, score 55-65 with rejection_reason noting the gap.
+    Do NOT default to 35 out of caution.
+  * A location/seniority/salary mismatch is NOT a "missing skill". If those are
+    the only issues, keep `missing_skills` empty and put the reason in
+    `rejection_reason` (even for scores >= 30 in these cases — override the rule
+    below).
+  * If none of the above triggers apply and you're between two scores, pick the
+    HIGHER one. The next filter (min_score threshold) can drop it later.
+
 - salary_in_range: if the posting mentions a salary, true when it is at or above the
   candidate's minimum (see preferences). null if no salary is mentioned.
 - remote_compatible: true if the posting's work mode (remote / hybrid / onsite + location)
@@ -30,7 +50,10 @@ CV (JSON) with a job posting and return ONE JSON object with this exact shape:
   regions, or the job is remote and open to them.
 - key_matches: 3-6 concrete overlaps between CV and posting (skills, projects, experience).
 - missing_skills: 0-5 skills the posting requires that the candidate clearly lacks.
-- rejection_reason: only when match_score < 30; one sentence explaining why.
+  Location, seniority, salary and visa are NOT skills — do not list them here.
+- rejection_reason: one sentence explaining the primary reason for any score below 70.
+  Required when score < 30. Recommended (not required) for 30-69 to help the
+  candidate decide fast. NULL for scores >= 70.
 - personalization_hooks: 2-4 sentences the candidate could use in a cover letter
   (a related own project, shared stack, a problem they have solved, etc).
 
@@ -138,16 +161,17 @@ def build_scoring_system(cv_master: dict[str, Any] | None) -> str:
 
     seniority = infer_seniority(cv)
     lines.append(
-        f"- The candidate is {_SENIORITY_LABELS[seniority]}. Penalise strongly when the "
-        "posting demands clearly more seniority or years than that; mildly when it is "
-        "clearly below (over-qualified)."
+        f"- The candidate is {_SENIORITY_LABELS[seniority]}. A gap of 1 year in "
+        "either direction is fine (still score high). Only penalise when the "
+        "posting explicitly requires a band ≥ 2 years above the candidate."
     )
 
     salary_min = prefs.get("salary_min_eur")
     if salary_min:
         lines.append(
             f"- Minimum acceptable salary: {int(salary_min)} EUR/year (or equivalent). "
-            "Penalise postings that state a clearly lower salary."
+            "If the posting states a lower salary, subtract at most 10 points and put the "
+            "issue in rejection_reason — do not drop the score to <40 just for salary."
         )
 
     regions = _target_regions(prefs)
@@ -155,8 +179,9 @@ def build_scoring_system(cv_master: dict[str, Any] | None) -> str:
     residence = prefs.get("residence_country") or personal.get("location")
     if remote_only:
         lines.append(
-            "- The candidate wants REMOTE work only: penalise onsite/hybrid postings unless "
-            "they are explicitly remote-friendly."
+            "- The candidate wants REMOTE work only: onsite/hybrid postings incompatible "
+            "with the candidate's location subtract ~15 points (not all points) and go "
+            "into rejection_reason — the candidate may still apply if the role is strong."
         )
     if regions:
         pretty = ", ".join("remote worldwide" if r == "REMOTE" else r for r in regions)

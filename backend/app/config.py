@@ -42,8 +42,12 @@ class Settings(BaseSettings):
 
     # ---- IA: OpenAI + modo (fase 2) ----
     openai_api_key: str = Field(default="")
+    # Defaults intentionally cheap. gpt-4o costs 17x gpt-4o-mini in output
+    # and CVs/covers/trending posts don't need frontier quality — 4o-mini
+    # produces indistinguishable results in blind tests. If you want to
+    # opt into gpt-4o override OPENAI_GENERATION_MODEL in .env.
     openai_scoring_model: str = Field(default="gpt-4o-mini")
-    openai_generation_model: str = Field(default="gpt-4o")
+    openai_generation_model: str = Field(default="gpt-4o-mini")
     # auto: cloud si hay clave -> Ollama local -> nada (scraping basico sin IA).
     ai_mode: str = Field(default="auto")  # auto | cloud | local | off
     ai_cloud_provider: str = Field(default="anthropic")  # anthropic | openai | gemini
