@@ -177,18 +177,36 @@ def health() -> dict:
     what breaks 'Prepare application' with the 'file missing on disk' errors.
     """
     import shutil as _sh
+    from pathlib import Path as _P
     typst_ok = _sh.which("typst") is not None
+    # Chromium via Playwright is required for the 1080x1080 banner PNGs on
+    # trending posts. `npx` alone is not enough — the browser must be
+    # downloaded via `npx playwright install chromium`. Detect that by looking
+    # at the standard cache path used across platforms.
+    npx_ok = _sh.which("npx") is not None
+    playwright_cache = _P.home() / "Library" / "Caches" / "ms-playwright"  # macOS
+    if not playwright_cache.exists():
+        playwright_cache = _P.home() / ".cache" / "ms-playwright"  # Linux
+    chromium_ok = npx_ok and any(
+        playwright_cache.glob("chromium*")
+    ) if playwright_cache.exists() else False
+
+    warnings: list[str] = []
+    if not typst_ok:
+        warnings.append(
+            "typst binary not installed — 'Prepare application' will fail. "
+            "Install with `brew install typst` (macOS), "
+            "`winget install typst` (Windows), "
+            "or run the project with `docker compose up`."
+        )
+    if not chromium_ok:
+        warnings.append(
+            "Playwright Chromium not installed — trending post images fall "
+            "back to a lower-quality Pillow renderer (no hero image). "
+            "Install once with `npx playwright install chromium`."
+        )
     return {
         "status": "ok",
-        "capabilities": {"typst": typst_ok},
-        "warnings": (
-            []
-            if typst_ok
-            else [
-                "typst binary not installed — 'Prepare application' will fail. "
-                "Install with `brew install typst` (macOS), "
-                "`winget install typst` (Windows), "
-                "or run the project with `docker compose up`."
-            ]
-        ),
+        "capabilities": {"typst": typst_ok, "chromium": chromium_ok},
+        "warnings": warnings,
     }
