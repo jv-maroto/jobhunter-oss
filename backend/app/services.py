@@ -165,17 +165,28 @@ async def run_all_scrapers() -> list[ScrapedJob]:
 
     all_jobs: list[ScrapedJob] = []
     seen_hashes: set[str] = set()
-    for res in results:
+    ok_count = 0
+    fail_count = 0
+    for scraper, res in zip(instances, results, strict=False):
+        name = scraper.__class__.__name__
         if isinstance(res, Exception):
-            logger.warning("scraper exception: %s", res)
+            # Log with full traceback so operators can debug: silently swallowing
+            # scraper failures used to hide 200+ missing jobs behind a "0 new"
+            # message on the frontend.
+            logger.exception("scraper %s failed: %s", name, res)
+            fail_count += 1
             continue
+        ok_count += 1
         for j in res:
             if j.hash and j.hash in seen_hashes:
                 continue
             seen_hashes.add(j.hash)
             all_jobs.append(j)
 
-    logger.info("total scraped (post-dedup): %d", len(all_jobs))
+    logger.info(
+        "scrapers: %d ok, %d failed. Total scraped (post-dedup): %d",
+        ok_count, fail_count, len(all_jobs),
+    )
     return all_jobs
 
 

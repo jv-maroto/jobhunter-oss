@@ -275,19 +275,24 @@ async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> Pre
         generate_cover_letter, cv_master, job_dict, hooks, out_dir, lang
     )
     # gather with return_exceptions so a typst failure in either half surfaces
-    # as an HTTP 500 with the real message, instead of persisting an orphan
+    # as an HTTP 500 with a safe message, instead of persisting an orphan
     # cv_path/cover_letter_path pointing at a file that was never written.
+    # CVGenerationError messages are curated for users; generic Exception
+    # messages are logged server-side but only a short reference goes to the
+    # client (avoid leaking absolute paths, module names, secrets).
     from app.ai.cv_generator import CVGenerationError
     results = await asyncio.gather(cv_task, cover_task, return_exceptions=True)
     cv_result, cover_result = results
     if isinstance(cv_result, CVGenerationError):
         raise HTTPException(status_code=500, detail=f"CV generation failed: {cv_result}")
     if isinstance(cv_result, Exception):
-        raise HTTPException(status_code=500, detail=f"CV generation crashed: {cv_result}")
+        logger.exception("CV generation crashed for job %s", job_id)
+        raise HTTPException(status_code=500, detail="CV generation crashed. Check backend logs for details.")
     if isinstance(cover_result, CVGenerationError):
         raise HTTPException(status_code=500, detail=f"Cover letter generation failed: {cover_result}")
     if isinstance(cover_result, Exception):
-        raise HTTPException(status_code=500, detail=f"Cover letter generation crashed: {cover_result}")
+        logger.exception("Cover letter generation crashed for job %s", job_id)
+        raise HTTPException(status_code=500, detail="Cover letter generation crashed. Check backend logs for details.")
     (pdf_cv, typst_src, lang) = cv_result
     (pdf_cover, cover_content) = cover_result
 
