@@ -50,7 +50,7 @@ const NAV: NavItem[] = [
     icon: Users,
     badge: (c) => (c.persons > 0 ? c.persons : undefined),
   },
-  { href: "/linkedin", label: "LinkedIn", icon: Megaphone },
+  { href: "/linkedin", label: "Noticias", icon: Megaphone },
   { href: "/settings/search", label: "Búsqueda", icon: Globe },
   { href: "/settings/ai", label: "IA", icon: Bot },
   { href: "/settings/integrations", label: "Correo", icon: Mail },

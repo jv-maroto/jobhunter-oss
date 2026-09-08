@@ -1,323 +1,251 @@
 "use client";
 
-import {
-  ContactRound,
-  ExternalLink,
-  MessageSquare,
-  Calendar,
-  Copy,
-  RefreshCcw,
-  X,
-} from "lucide-react";
+/**
+ * /linkedin — sólo noticias trending para LinkedIn.
+ *
+ * Ni comment suggestions ni personas ni devlog personal — sólo el pipeline de
+ * trending news scrapeado de HN / dev.to con post generado por Claude y banner
+ * AMD-style. Personal setup — quiere leerlas y publicarlas, no rellenar más UI.
+ */
+
+import * as React from "react";
+import { Flame, RefreshCcw, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { WeekScheduler } from "@/components/posts/WeekScheduler";
-import { PersonCard } from "@/components/persons/PersonCard";
+import { PostCard } from "@/components/posts/PostCard";
 import { usePosts } from "@/hooks/usePosts";
-import { usePersons } from "@/hooks/usePersons";
-import * as React from "react";
-import { Input, Textarea } from "@/components/ui/input";
-import {
-  useAddManualPost,
-  useCommentSuggestions,
-  useMarkCommented,
-  useRegenerateComment,
-  useSkipComment,
-} from "@/hooks/useComments";
+import { api } from "@/lib/api";
 
-export default function LinkedInPage() {
+type StartResp = { status: string; requested?: number };
+type TrendingStatus = {
+  running: boolean;
+  stories_found: number;
+  created: number;
+  images_done: number;
+  requested: number;
+  error: string | null;
+};
+
+export default function NoticiasPage() {
   const posts = usePosts();
-  const persons = usePersons();
-  const comments = useCommentSuggestions(8);
-  const regenerate = useRegenerateComment();
-  const markCommented = useMarkCommented();
-  const skipComment = useSkipComment();
+  const [postLang, setPostLang] = React.useState<"es" | "en">("es");
 
-  const pendingPersons = (persons.data ?? []).filter((p) => p.status === "pending");
-  const commentsList = comments.data ?? [];
+  const trending = React.useMemo(
+    () =>
+      (posts.data ?? [])
+        .filter((p) => p.kind === "trending")
+        .sort((a, b) => (b.id ?? 0) - (a.id ?? 0)),
+    [posts.data],
+  );
 
-  const addManual = useAddManualPost();
-  const [manualUrl, setManualUrl] = React.useState("");
-  const [manualAuthor, setManualAuthor] = React.useState("");
-  const [manualContent, setManualContent] = React.useState("");
+  const drafts = trending.filter((p) => p.status === "draft");
+  const scheduled = trending.filter((p) => p.status === "scheduled");
+  const published = trending.filter((p) => p.status === "published");
 
-  const submitManual = async () => {
-    if (!manualUrl || !manualContent) {
-      toast.error("URL y contenido del post son obligatorios");
-      return;
-    }
+  const generateTrending = async (opts: { count?: number; replace?: boolean } = {}) => {
+    const count = opts.count ?? 10;
+    const replace = opts.replace ?? false;
+    const label = replace
+      ? `Regenerando trending (borrando drafts antiguos y trayendo ${count} nuevos)…`
+      : `Trayendo top ${count} noticias tech de las últimas 24h…`;
+    const toastId = toast.loading(label);
     try {
-      await addManual.mutateAsync({
-        post_url: manualUrl,
-        author_name: manualAuthor || "Unknown",
-        content_excerpt: manualContent,
+      const res = await api<StartResp>("/posts/generate-trending", {
+        method: "POST",
+        body: JSON.stringify({
+          count,
+          language: postLang,
+          replace_drafts: replace,
+        }),
       });
-      toast.success("Post añadido. Claude generó comentario.");
-      setManualUrl("");
-      setManualAuthor("");
-      setManualContent("");
+      if (res.status === "already_running") {
+        toast.info("Ya hay un trending en curso — espera al final.", {
+          id: toastId,
+        });
+      } else {
+        toast.loading("Claude está comentando las noticias…", {
+          id: toastId,
+          description: "Tarda 30-90s. Puedes seguir trabajando.",
+        });
+      }
+      const pollId = window.setInterval(async () => {
+        try {
+          const s = await api<TrendingStatus>("/posts/generate-trending-status");
+          if (!s.running) {
+            window.clearInterval(pollId);
+            if (s.error) {
+              toast.error("Falló trending", {
+                id: toastId,
+                description: s.error.slice(0, 200),
+              });
+            } else {
+              toast.success(
+                `${s.created} posts · ${s.images_done} imágenes generadas`,
+                {
+                  id: toastId,
+                  description: `${s.stories_found} noticias procesadas.`,
+                  icon: <Flame className="h-4 w-4" />,
+                  duration: 8000,
+                },
+              );
+            }
+            posts.refetch();
+          } else {
+            toast.loading(
+              `Trending… ${s.created}/${s.stories_found || s.requested} posts · ${s.images_done} imgs`,
+              { id: toastId },
+            );
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 4000);
     } catch (e) {
-      toast.error("Failed", { description: String(e).slice(0, 120) });
+      toast.error("No se pudo lanzar trending", {
+        id: toastId,
+        description: String(e).slice(0, 160),
+      });
     }
   };
 
   return (
     <div className="space-y-5">
-      {/* MIDI 3-panel header */}
+      {/* Header con métricas + botones */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <Card variant="glass" hover="lift" className="p-4">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            Posts queue
-          </div>
-          <div className="mt-2 mono text-2xl font-semibold tabular-nums leading-none text-foreground">
-            {(posts.data ?? []).length}
-          </div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            this week
-          </div>
-        </Card>
-        <Card variant="glass" hover="lift" className="p-4">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            Connection requests
+            Drafts trending
           </div>
           <div className="mt-2 mono text-2xl font-semibold tabular-nums leading-none text-[hsl(var(--accent-1))]">
-            {pendingPersons.length}
+            {drafts.length}
           </div>
           <div className="mt-1 text-[10px] text-muted-foreground">
-            pending outreach
+            listos para revisar y programar
           </div>
         </Card>
         <Card variant="glass" hover="lift" className="p-4">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            Comments
+            Programados
           </div>
           <div className="mt-2 mono text-2xl font-semibold tabular-nums leading-none text-foreground">
-            {commentsList.length}
+            {scheduled.length}
           </div>
           <div className="mt-1 text-[10px] text-muted-foreground">
-            suggested
+            en cola para publicar
+          </div>
+        </Card>
+        <Card variant="glass" hover="lift" className="p-4">
+          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            Publicados
+          </div>
+          <div className="mt-2 mono text-2xl font-semibold tabular-nums leading-none text-foreground">
+            {published.length}
+          </div>
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            histórico
           </div>
         </Card>
       </div>
 
-      {/* Posts — week scheduler */}
+      {/* Controles de generación */}
+      <Card variant="glass">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="inline-flex items-center gap-2">
+              <Flame className="h-4 w-4 text-[hsl(var(--accent-2))]" />
+              Trending news · últimas 24h
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Scraping HN + dev.to, un post por noticia con Claude y banner
+              AMD-style con la og:image del artículo.
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 flex-wrap">
+            <select
+              value={postLang}
+              onChange={(e) => setPostLang(e.target.value as "es" | "en")}
+              className="h-8 rounded-md border border-[hsl(var(--border))] bg-transparent px-2 text-xs"
+            >
+              <option value="es">Español</option>
+              <option value="en">English</option>
+            </select>
+            <Button
+              size="sm"
+              onClick={() => generateTrending({ count: 10, replace: false })}
+              shimmer
+            >
+              <Flame className="h-3.5 w-3.5" />
+              Trending +10
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-pink-500/40 text-pink-300 hover:bg-pink-500/10"
+              onClick={() => generateTrending({ count: 15, replace: true })}
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              Regenerar (borra drafts antiguos)
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Grid de trending drafts */}
       <Card variant="glass">
         <CardHeader>
           <CardTitle className="inline-flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-[hsl(var(--accent-1))]" />
-            This week of posts
+            <Flame className="h-4 w-4 text-[hsl(var(--accent-1))]" />
+            Drafts listos
           </CardTitle>
           <p className="text-[11px] text-muted-foreground">
-            Click any card to edit before scheduling.
+            Ordenados del más reciente al más antiguo. Click en cada tarjeta
+            para revisar/editar antes de programar.
           </p>
         </CardHeader>
         <CardContent>
           {posts.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-64 w-full" />
+              ))}
+            </div>
+          ) : drafts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[hsl(var(--border))] p-10 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">
+                No hay drafts trending. Dale a “Trending +10” para generar.
+              </p>
+              <Button
+                onClick={() => generateTrending({ count: 10, replace: false })}
+                shimmer
+              >
+                <Flame className="h-3.5 w-3.5" />
+                Traer top 10 noticias
+              </Button>
+            </div>
           ) : (
-            <WeekScheduler posts={posts.data ?? []} />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {drafts.map((p) => (
+                <div key={p.id} className="space-y-2">
+                  <PostCard post={p} />
+                  {p.source_url && (
+                    <a
+                      href={p.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-[hsl(var(--accent-1))] mono"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      fuente
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
-
-      {/* Connections + Comments side by side */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <Card variant="glass">
-          <CardHeader>
-            <CardTitle className="inline-flex items-center gap-2">
-              <ContactRound className="h-4 w-4 text-[hsl(var(--accent-1))]" />
-              Connections queue
-            </CardTitle>
-            <p className="text-[11px] text-muted-foreground">
-              Prioritised by match relevance.
-            </p>
-          </CardHeader>
-          <CardContent>
-            {persons.isLoading ? (
-              <Skeleton className="h-48 w-full" />
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {(persons.data ?? []).map((p) => (
-                  <PersonCard key={p.id} person={p} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card variant="glass">
-          <CardHeader>
-            <CardTitle className="inline-flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-[hsl(var(--accent-2))]" />
-              Comment suggestions
-            </CardTitle>
-            <p className="text-[11px] text-muted-foreground">
-              Pega abajo la URL y contenido de un post de LinkedIn donde quieras
-              comentar. Claude generará un comentario contextual.
-            </p>
-          </CardHeader>
-          <CardContent className="border-b border-[hsl(var(--border))] space-y-2 pb-4">
-            <Input
-              placeholder="URL del post: https://www.linkedin.com/posts/..."
-              value={manualUrl}
-              onChange={(e) => setManualUrl(e.target.value)}
-              className="text-xs"
-            />
-            <Input
-              placeholder="Nombre del autor (opcional)"
-              value={manualAuthor}
-              onChange={(e) => setManualAuthor(e.target.value)}
-              className="text-xs"
-            />
-            <Textarea
-              placeholder="Pega el contenido del post (primeras 5-10 líneas)"
-              value={manualContent}
-              onChange={(e) => setManualContent(e.target.value)}
-              rows={4}
-              className="text-xs"
-            />
-            <Button
-              size="sm"
-              shimmer
-              onClick={submitManual}
-              disabled={addManual.isPending}
-              className="w-full"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              Generar comentario con Claude
-            </Button>
-          </CardContent>
-          <CardContent className="space-y-3">
-            {comments.isLoading ? (
-              <Skeleton className="h-32 w-full" />
-            ) : commentsList.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[hsl(var(--border))] p-6 text-center space-y-2 text-xs">
-                <p className="text-muted-foreground">
-                  No comment suggestions yet. To populate this list:
-                </p>
-                <ol className="text-left text-muted-foreground/80 max-w-md mx-auto list-decimal pl-5 space-y-1">
-                  <li>Make sure the JobHunter extension is loaded in your browser.</li>
-                  <li>
-                    Open <span className="mono">linkedin.com/feed</span> and
-                    scroll through a few posts.
-                  </li>
-                  <li>
-                    The extension captures posts and the backend generates a
-                    comment draft with Claude. Refresh this page.
-                  </li>
-                </ol>
-              </div>
-            ) : (
-              commentsList.map((c) => (
-                <Card
-                  key={c.id}
-                  variant="solid"
-                  hover="lift"
-                  className="p-4 space-y-2"
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">
-                        {c.author_name ?? "Unknown"}
-                      </div>
-                      {c.author_headline && (
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          {c.author_headline}
-                        </div>
-                      )}
-                    </div>
-                    <a
-                      href={c.post_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-muted-foreground hover:text-[hsl(var(--accent-1))] inline-flex items-center gap-1 text-[10px] shrink-0 ml-2"
-                    >
-                      Post <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                  {c.content_excerpt && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {c.content_excerpt}
-                    </p>
-                  )}
-                  <div className="rounded-md border border-[hsl(var(--border))] bg-white/[0.02] p-2.5 text-xs leading-relaxed whitespace-pre-line">
-                    {c.suggested_comment ?? "(no draft yet)"}
-                  </div>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <Badge variant="mono" size="sm">
-                        score {Math.round(c.relevance_score * 100)}
-                      </Badge>
-                      <Badge variant="outline" size="sm">
-                        {c.status}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          try {
-                            await regenerate.mutateAsync(c.id);
-                            toast.success("Comment regenerated");
-                          } catch {
-                            toast.error("Regenerate failed");
-                          }
-                        }}
-                        title="Regenerate with Claude"
-                      >
-                        <RefreshCcw className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          try {
-                            await skipComment.mutateAsync(c.id);
-                          } catch {
-                            /* noop */
-                          }
-                        }}
-                        title="Skip this one"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        shimmer
-                        onClick={async () => {
-                          if (c.suggested_comment) {
-                            try {
-                              await navigator.clipboard.writeText(c.suggested_comment);
-                              toast.success("Comment copied + post opened", {
-                                icon: <Copy className="h-4 w-4" />,
-                              });
-                            } catch {
-                              toast.error("Copy failed");
-                            }
-                          }
-                          window.open(c.post_url, "_blank");
-                          try {
-                            await markCommented.mutateAsync(c.id);
-                          } catch {
-                            /* noop */
-                          }
-                        }}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Copy & Open
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
