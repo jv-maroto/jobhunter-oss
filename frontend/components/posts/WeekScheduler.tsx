@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, CheckCircle2, Download, FileText, Image as ImageIcon, RefreshCcw, Send } from "lucide-react";
+import { CalendarClock, CheckCircle2, Download, ExternalLink, FileText, Image as ImageIcon, RefreshCcw, Send } from "lucide-react";
 import { formatShort } from "@/lib/utils";
 import {
   Dialog,
@@ -205,6 +205,17 @@ export function WeekScheduler({ posts }: { posts: Post[] }) {
                   </span>
                 ))}
               </div>
+            )}
+            {active?.source_url && (
+              <a
+                href={active.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-[hsl(var(--accent-1))] mono"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Abrir fuente original
+              </a>
             )}
           </div>
           <DialogFooter className="flex-wrap gap-2">
