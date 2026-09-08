@@ -7,8 +7,10 @@ import shutil
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.api import (
     ai_settings,
@@ -29,6 +31,7 @@ from app.api import (
 )
 from app.config import settings
 from app.db import init_db
+from app.rate_limit import limiter
 from app.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -89,6 +92,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         stop_scheduler()
 
 
+def _rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": (
+                "Rate limit exceeded. Give the local backend a breather — "
+                f"limit: {exc.detail}"
+            ),
+        },
+    )
+
+
 app = FastAPI(
     title="Jobhunter Backend",
     version="0.1.0",
@@ -98,6 +113,9 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 if settings.cors_extension_regex is None:
     logger.info("CORS: extensión Chrome restringida a chrome_extension_id configurado")
@@ -120,6 +138,7 @@ app.include_router(jobs.router)
 app.include_router(persons.router)
 app.include_router(posts.router)
 app.include_router(metrics.router)
+app.include_router(ext.bootstrap_router)
 app.include_router(ext.router)
 app.include_router(comments.router)
 app.include_router(settings_api.router)

@@ -3,9 +3,17 @@
   "name": "JobHunter Assistant",
   "version": "0.2.0",
   "description": "Companion to your JobHunter dashboard: LinkedIn helper + universal application form auto-filler.",
-  "permissions": ["storage", "activeTab", "tabs", "alarms"],
+  "permissions": ["storage", "activeTab", "tabs", "alarms", "scripting"],
   "host_permissions": [
     "https://www.linkedin.com/*",
+    "http://localhost:8000/*",
+    "http://localhost:8001/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:8000/*",
+    "http://127.0.0.1:8001/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "optional_host_permissions": [
     "https://wellfound.com/*",
     "https://*.lever.co/*",
     "https://*.greenhouse.io/*",
@@ -35,13 +43,7 @@
     "https://*.talentclue.com/*",
     "https://talentclue.com/*",
     "https://jobs.neclab.eu/*",
-    "https://*.neclab.eu/*",
-    "http://localhost:8000/*",
-    "http://localhost:8001/*",
-    "http://localhost:3000/*",
-    "http://127.0.0.1:8000/*",
-    "http://127.0.0.1:8001/*",
-    "http://127.0.0.1:3000/*"
+    "https://*.neclab.eu/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",

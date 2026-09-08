@@ -27,6 +27,9 @@ dependencies = [
     # Necesario en base: los endpoints de onboarding usan UploadFile y FastAPI
     # aborta al importar la app si falta.
     "python-multipart>=0.0.9",
+    # Rate limiting per-endpoint. Uses in-memory storage by default which
+    # is fine for a single-user local backend.
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

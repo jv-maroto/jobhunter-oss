@@ -43,7 +43,12 @@ export function useScrapeStatus() {
     staleTime: 0,
   });
 
-  // Emit a single toast on the running=true → running=false edge
+  // Emit a single toast on the running=true → running=false edge, and
+  // debounce cache invalidation. Before the debounce, finishing a scrape
+  // fired 3 immediate invalidateQueries → 3 network refetches in the same
+  // tick, each pulling 300+ rows. On a busy scheduler run the UI froze for
+  // ~10s. 300ms is invisible to the user but coalesces the burst.
+  const invalidateTimerRef = React.useRef<number | null>(null);
   React.useEffect(() => {
     const s = query.data;
     if (!s) return;
@@ -63,12 +68,28 @@ export function useScrapeStatus() {
           },
         );
       }
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      qc.invalidateQueries({ queryKey: ["pipeline"] });
-      qc.invalidateQueries({ queryKey: ["metrics"] });
+      if (invalidateTimerRef.current !== null) {
+        window.clearTimeout(invalidateTimerRef.current);
+      }
+      invalidateTimerRef.current = window.setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["jobs"] });
+        qc.invalidateQueries({ queryKey: ["pipeline"] });
+        qc.invalidateQueries({ queryKey: ["metrics"] });
+        invalidateTimerRef.current = null;
+      }, 300);
     }
     prevRunningRef.current = s.running;
   }, [query.data, qc]);
+
+  React.useEffect(() => {
+    // Cleanup pending timer on unmount to avoid a stray refetch on a page
+    // the user has already left.
+    return () => {
+      if (invalidateTimerRef.current !== null) {
+        window.clearTimeout(invalidateTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     ...query,

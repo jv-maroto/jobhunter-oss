@@ -10,12 +10,32 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.ext_auth import get_or_create_token, require_ext_token
 from app.models.apply_queue import ApplyQueueItem
 from app.models.job import Job
 from app.models.person import Person
 from app.models.post import Post
 
-router = APIRouter(prefix="/ext", tags=["ext"])
+# Every /ext/* endpoint (except /ext/token, which bootstraps auth) requires
+# the X-Extension-Token header once a token has been provisioned. See
+# app/ext_auth.py for the rationale and backwards-compat behaviour.
+router = APIRouter(
+    prefix="/ext",
+    tags=["ext"],
+    dependencies=[Depends(require_ext_token)],
+)
+
+# Unprotected router just for the bootstrap endpoint (extension needs a way
+# to fetch the token the first time). CORS already restricts callers to
+# chrome-extension:// origins configured in .env.
+bootstrap_router = APIRouter(prefix="/ext", tags=["ext"])
+
+
+@bootstrap_router.get("/token")
+def get_ext_token() -> dict:
+    """Return the shared secret. Extension calls this once on install and
+    stores it in `chrome.storage.local`. Creates the token on first call."""
+    return {"token": get_or_create_token()}
 
 
 @router.get("/profile")

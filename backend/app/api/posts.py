@@ -8,7 +8,7 @@ from datetime import date as date_t
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -19,6 +19,7 @@ from app.ai.image_generator_html import generate_post_image_html
 from app.ai.post_generator import generate_trending_posts, generate_weekly_posts
 from app.db import get_db
 from app.models.post import Post
+from app.rate_limit import limiter
 from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
 from app.scrapers.article_summary import fetch_metas
 from app.scrapers.trending_sources import fetch_top_trending_24h
@@ -212,7 +213,17 @@ def get_post_image(post_id: int, download: bool = False, db: Session = Depends(g
         except Exception:  # noqa: BLE001
             db.rollback()
         path = rebased
-    headers = {}
+    # Cache aggressively — post images are content-addressable by post id
+    # and only change when the user explicitly regenerates. Etag is the mtime
+    # so a regenerate silently invalidates browser cache too. Cuts the
+    # dashboard's image-fetch rate ~10x on repeat renders.
+    headers: dict[str, str] = {
+        "Cache-Control": "private, max-age=3600",
+    }
+    try:
+        headers["ETag"] = f'W/"{int(path.stat().st_mtime)}"'
+    except OSError:
+        pass
     if download:
         import re as _re
         topic = (p.topic or f"post-{post_id}").lower()
@@ -316,7 +327,10 @@ def _run_generate_week(theme: str, count: int, language: str) -> None:
 
 
 @router.post("/generate-week")
-def generate_week(payload: PostGenerateIn, background_tasks: BackgroundTasks) -> dict:
+@limiter.limit("4/minute")
+def generate_week(
+    request: Request, payload: PostGenerateIn, background_tasks: BackgroundTasks
+) -> dict:
     """Dispara generación de la semana en background. Devuelve inmediatamente.
     Frontend hace polling a /posts/generate-week-status para ver progreso."""
     if _GENWEEK_STATE.get("running"):
@@ -512,8 +526,9 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
 
 
 @router.post("/generate-trending")
+@limiter.limit("6/minute")
 def generate_trending(
-    payload: TrendingGenerateIn, background_tasks: BackgroundTasks
+    request: Request, payload: TrendingGenerateIn, background_tasks: BackgroundTasks
 ) -> dict:
     """Dispara en background: fetch HN → Claude → posts trending + imágenes."""
     if _TRENDING_STATE.get("running"):

@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.config import settings
 from app.db import get_db
 from app.models.application import Application
 from app.models.job import Job
+from app.rate_limit import limiter
 from app.schemas.job import (
     JobOut,
     JobPatch,
@@ -144,7 +145,8 @@ async def _run_scrape_background() -> None:
 
 
 @router.post("/scrape-now", tags=["jobs"])
-async def scrape_now(background_tasks: BackgroundTasks) -> dict:
+@limiter.limit("6/minute")
+async def scrape_now(request: Request, background_tasks: BackgroundTasks) -> dict:
     from app.onboarding.detect import is_onboarded
 
     if not is_onboarded():
@@ -246,7 +248,10 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{job_id}/prepare-application", response_model=PrepareApplicationOut)
-async def prepare_application(job_id: int, db: Session = Depends(get_db)) -> PrepareApplicationOut:
+@limiter.limit("20/minute")
+async def prepare_application(
+    request: Request, job_id: int, db: Session = Depends(get_db)
+) -> PrepareApplicationOut:
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

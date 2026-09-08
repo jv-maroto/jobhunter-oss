@@ -62,7 +62,8 @@ chrome.runtime.onMessage.addListener(
           const settings = await getSettings();
           const base = settings.backend_url.replace(/\/+$/, "");
           try {
-            const res = await fetch(`${base}/ext/profile`, {
+            const { extFetch } = await import("../lib/api");
+            const res = await extFetch(base, "/ext/profile", {
               headers: { Accept: "application/json" }
             });
             if (!res.ok) {
