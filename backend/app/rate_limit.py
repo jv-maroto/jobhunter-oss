@@ -21,5 +21,9 @@ limiter = Limiter(
     # React StrictMode. Individual expensive endpoints override with tighter
     # per-endpoint decorators (scrape, prepare-application, generate-*).
     default_limits=["600/minute"],
-    headers_enabled=True,
+    # headers_enabled=True would require every rate-limited endpoint to
+    # accept a `response: Response` parameter so slowapi can inject
+    # X-RateLimit-* headers. Not worth the API surface change on a local
+    # single-user backend.
+    headers_enabled=False,
 )
