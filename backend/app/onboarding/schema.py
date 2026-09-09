@@ -32,8 +32,12 @@ class PersonalInfo(_Loose):
 
 class SearchPreferences(_Loose):
     # --- existentes ---
-    salary_min_eur: int = 30000
-    salary_max_eur: int = 50000
+    salary_min_eur: int | None = Field(default=None, ge=0)
+    salary_max_eur: int | None = Field(default=None, ge=0)
+    salary_min: int | None = Field(default=None, ge=0)
+    salary_max: int | None = Field(default=None, ge=0)
+    salary_currency: str | None = None
+    roles: list[str] = Field(default_factory=list)
     remote_only: bool = False
     exclude_keywords: list[str] = Field(default_factory=list)
     preferred_countries: list[str] = Field(default_factory=list)  # LEGACY -> regions
@@ -50,8 +54,9 @@ class SearchPreferences(_Loose):
     hours_old: int = 72
 
     # --- (P1) campos que ext.py ya consume ---
-    work_authorization_eu: bool = False
-    willing_to_relocate: bool = False
+    work_authorization_eu: bool | None = None
+    work_authorization_ch: bool | None = None
+    willing_to_relocate: bool | None = None
     remote_preference: str = ""
     notice_period: str = ""
     salary_expectation: str = ""

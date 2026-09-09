@@ -16,6 +16,22 @@ export class ApiError extends Error {
   }
 }
 
+async function responseError(res: Response): Promise<ApiError> {
+  let message = `Request failed (${res.status})`;
+  try {
+    const { detail } = await res.json();
+    if (typeof detail === "string") message = detail.slice(0, 500);
+    else if (Array.isArray(detail)) {
+      message = detail.slice(0, 3).map((item: { loc?: string[]; msg?: string }) =>
+        `${item.loc?.slice(1).join(".") || "Input"}: ${item.msg || "Invalid value"}`,
+      ).join("; ").slice(0, 500);
+    }
+  } catch {
+    return new ApiError(message, res.status);
+  }
+  return new ApiError(message, res.status);
+}
+
 export async function api<T>(
   path: string,
   init?: RequestInit,
@@ -29,7 +45,7 @@ export async function api<T>(
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new ApiError(`API ${path}: ${res.status}`, res.status);
+    throw await responseError(res);
   }
   // 204 No Content
   const text = await res.text();
@@ -53,7 +69,7 @@ export async function apiUpload<T>(
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new ApiError(`API ${path}: ${res.status}`, res.status);
+    throw await responseError(res);
   }
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;

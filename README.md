@@ -19,8 +19,8 @@ and helps with LinkedIn — all running on your own machine.
 |---|---|
 | **Discovery** | Scrapes LinkedIn, Indeed, Remotive, We Work Remotely, HN "Who is hiring", Arbeitnow, Tecnoempleo, Platsbanken and Adzuna. Auto-scrape every 6 h (configurable) + a "search now" button. |
 | **Scoring** | Every new job is scored against your profile: match %, missing skills, salary fit, remote/location compatibility. Rules come from *your* `search_preferences` (salary, countries, seniority, stack), not from a hardcoded persona. |
-| **Tracks** | Jobs auto-classified into `dev` vs `sysadmin` with separate Kanbans and salary-band heuristics. |
-| **CV / cover** | One-click "Prepare application" writes a tailored CV (Typst → PDF) and a cover letter for each job. |
+| **Tracks** | Data engineering, analytics engineering, BI, data analysis, data science, AI/ML and quantitative roles, alongside software and infrastructure. Jobs and swipe show all families by default. |
+| **CV / cover** | One-click "Prepare application" uses your configured existing PDF unchanged, or generates a tailored CV, plus a cover letter. Each preparation keeps separate files. |
 | **LinkedIn helper** | Weekly content posts (devlog + trending Hacker News) with generated infographics; comment suggestions on posts you visit; connection notes. |
 | **Chrome extension** | Auto-fills application forms on Wellfound, Lever, Greenhouse, Ashby, Workable, Indeed and 15+ ATS platforms from your profile data. |
 | **Tracking** | Optional read-only Gmail sync classifies recruiter replies and moves jobs through the pipeline (reversible). |
@@ -56,7 +56,7 @@ GitHub and/or your LinkedIn export, choose countries and job boards, and it writ
 `backend/app/data/cv_master.json`. **Scraping does not start until the wizard is
 done** — without a profile there are no meaningful queries.
 
-> **Your profile never leaves your machine.** `cv_master.json` is gitignored —
+> **Your profile is stored locally.** Configured cloud AI providers receive the profile and task content needed for generation or scoring. `cv_master.json` is gitignored —
 > the repo only ships `cv_master.example.json`, which is copied on first run.
 > Re-run the wizard any time from **Settings → Redo onboarding** (your current
 > profile is backed up first).
@@ -70,9 +70,26 @@ No. The wizard's first step lets you choose:
   The wizard tells you if Ollama is running but the model is missing.
 - **Cloud AI** — Anthropic / OpenAI / Gemini. Paste the key in the wizard (stored
   in `backend/data/integrations/ai.json`, never sent to the browser) or set it in `.env`.
-- **No AI** — scraping and the Kanban still work. Scoring falls back to a simple
-  keyword-overlap heuristic (scores are marked as such); CV/cover generation is
-  disabled.
+- **No AI** — scraping and the Kanban still work. Scoring falls back to an
+  explicitly marked heuristic. CVs and cover letters use a factual local fallback;
+  PDF generation still requires Typst.
+
+### Use your ChatGPT account through Codex
+
+Install Codex CLI 0.153.4 or newer on the backend machine and run `codex login`
+with your ChatGPT account. Choose **OpenAI Codex (ChatGPT account)** in onboarding
+or AI settings, save, then test. No OpenAI API key is needed. Requests use your
+Codex allowance; task content is sent to OpenAI. This is a local backend option;
+the supplied Docker image does not include Codex or your login.
+
+`CODEX_MODEL`, `CODEX_REASONING_EFFORT`, `CODEX_BINARY`, and
+`CODEX_TIMEOUT_SECONDS` configure this provider in `backend/.env`. Defaults are
+`gpt-6-astra`, `medium`, `codex`, and 180 seconds. Calls run one at a time in an
+ephemeral read-only workspace, with shell, web search and user-configured
+connectors disabled. Codex mode uses only Codex, with no paid API fallback.
+CLI generation does not expose temperature or a strict output-token limit;
+the requested length is included in the prompt. API euro estimates do not
+represent subscription usage. See [Codex automation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 ### Optional tools
 
@@ -139,17 +156,56 @@ schema is flexible; key sections:
 
 - `personal` — name, email, phone, links (used by the extension's auto-fill)
 - `summary_es` / `summary_en`, `experience`, `education`, `skills` (grouped), `languages`
-- `search_preferences` — `salary_min_eur`, `regions` / `region_preset`, `remote_only`,
+- `search_preferences` — `salary_min`, `salary_max`, `salary_currency`, `regions` / `region_preset`, `remote_only`,
   `roles`, `exclude_keywords`, optional `seniority` (`junior | mid | senior | lead`;
-  inferred from your experience if absent). **These drive both the search queries and
+  unspecified if absent). **These drive both the search queries and
   the scoring rules.**
+- `search_preferences.employment_types` and `seniority` select contract and career-level targets. An
+  unspecified contract stays unconfirmed; full-time does not mean permanent.
+- Project `context`, `context_detail`, `role_families` and `claim_boundaries` keep
+  academic projects separate from employment and guide tailored document selection.
 - `narratives` (optional) — long answers for common application questions that the
   extension pastes into textareas.
+
+### Existing application CVs
+
+To keep a supplied CV unchanged, copy it into `backend/data/resumes/` and configure
+`application_documents.mode` as `"existing"` in your local profile. Map each selected
+track in `application_documents.cv_by_track` to its `filename`, SHA-256 `sha256`,
+and `language: "en"`. Settings shows the role-to-file mapping. Preparation verifies
+the file and copies identical bytes; a missing or changed file produces an error
+instead of generating a replacement. Original files outside Jobhunter are not edited.
+Remove this mode to use the tailored-CV flow.
 
 ### Job boards
 
 Pick countries and boards in the wizard or later in **Settings → Search**.
 Queries are derived from your roles and skills.
+
+You can also add a job directly from **Jobs**: paste its public URL or enter the
+title, company and description manually. Open the job to review the description,
+required and preferred qualifications, evidence from your profile and unanswered
+questions. Fit scores are estimates; check missing information before applying.
+
+The **Switzerland only** preset searches CH. Every selected role is retained in
+automatic queries. LinkedIn, Indeed and Google Jobs support Swiss searches; only
+enabled boards run. LinkedIn fetches full descriptions for requirement checks.
+Manual and scheduled searches share a status and cannot overlap in one backend process.
+Remote jobs need explicit eligibility for a selected country.
+EU/EEA-only remote postings do not establish Swiss eligibility. Existing application
+history stays available when preferences change.
+
+Salary amounts retain their source currency and pay period. Set a CHF annual range
+in Search settings if desired; leave it blank to avoid a salary filter. Comparisons
+require the same currency and a stated annual period: the app does not invent FX
+rates, working hours, or a market salary from an employer's name. Legacy
+`salary_min_eur` / `salary_max_eur` profiles remain readable.
+
+Profile saves validate JSON, keep backups, and invalidate generated-answer caches
+through their profile fingerprint. Onboarding can be resumed without discarding
+the saved profile. Pending jobs are refreshed against saved profile changes using
+clearly labeled heuristic estimates; application history remains intact. Autofill refreshes the profile on every click and leaves
+unconfirmed permission, residence and experience claims for manual review.
 
 | Board | Coverage | Needs a key? | Status |
 |---|---|---|---|
@@ -166,6 +222,19 @@ Queries are derived from your roles and skills.
 Declared but **not implemented** (StepStone, WTTJ, APEC, Reed, France Travail,
 Bundesagentur, TheHub, Nationale Vacaturebank) show up greyed out in the UI and are
 never silently enabled. See [CONTRIBUTING.md](CONTRIBUTING.md) to add one.
+
+### Review applications and follow up
+
+**Applications** is a paginated register of saved jobs, prepared documents and
+recorded submissions. Review a prepared application to edit and save its cover
+letter, copy its text and open the exact CV and cover PDFs. Unsaved edits stay in
+the editor after a save failure; save them before exporting the cover PDF.
+Submitted or closed versions are read-only; prepare a new version to change them.
+
+Opening the original job does not record an application. After submitting through
+the employer's process, use **I submitted this application**, optionally entering
+the actual submission time. Add notes, a next action and its due date on the job;
+**Today** lists due follow-ups, and **Applications** can filter by a due date.
 
 ### Cost control
 
@@ -191,19 +260,52 @@ your API key.
 
 ## Privacy
 
-- Your data lives in `backend/jobhunter.db` (SQLite) and `backend/data/` — never uploaded.
+- Your data is stored in `backend/jobhunter.db` (SQLite), `backend/data/`, and the gitignored profile. AI task inputs are sent to the provider you configure; local Ollama keeps that processing local.
 - Generated CVs/cover letters in `backend/data/applications/<company-slug>/`.
 - Network calls go only to: the job boards you enable, GitHub (onboarding, optional),
   Hacker News (trending posts, optional), Gmail (if you connect it, read-only),
   Google Fonts when rendering post images with Playwright, and the LLM provider you configure.
 - The Chrome extension only acts when you click its button; no background data collection.
 
+Keep identity, contact details, career evidence and search preferences in your local
+`backend/app/data/cv_master.json`; keep credentials and machine-specific paths in
+`backend/.env` or the dashboard's local integration store. These files, the SQLite
+database and its sidecars, `backend/data/`, `cvs-out/` exports, `output/`, local
+code indexes and runtime logs are ignored. Public examples and test fixtures must
+use synthetic data. Preserve upstream author and license attribution.
+
+Before preparing a contribution, run these read-only checks from the repository
+root; they do not stage, commit, push or open a PR:
+
+```bash
+python3 scripts/test-public-source.py
+python3 scripts/check-public-source.py
+python3 scripts/check-public-source.py --with-private-values
+```
+
+The default check scans tracked files and eligible untracked files, including
+symlink targets, for private artifact paths, credential patterns and local home
+paths. The optional check also compares identity, contact, employer, institution,
+project and credential values from your local profile, `.env` files and integration
+store without printing those values. Short names use whole-word matching; shared
+company or project names may need review when they also appear in public documentation.
+`CV_MASTER_PATH` and `DATA_DIR` in `backend/.env` or the environment select custom
+locations. A fresh CI checkout needs no private configuration.
+
+After reviewing and staging only the intended source files, check the complete
+index with `python3 scripts/check-public-source.py --staged --with-private-values`.
+This reads the staged bytes, including tracked files that now match ignore rules.
+A successful check is a useful guard, not proof of anonymity: review the diff,
+public binary assets, screenshots and eventual commit metadata separately. The
+scanner does not unpack compressed PDF/image content or inspect Git history.
+Never attach local exports or runtime logs to a PR without reviewing their contents.
+
 ## Development
 
 ```bash
 cd backend && pip install -e ".[onboarding,dev]" && pytest -q && ruff check app tests
-cd frontend && npm run lint && npm run build
-cd linkedin-ext && npm run typecheck && npm run build
+cd frontend && npm run lint && npm run test:unit && npm run build
+cd linkedin-ext && npm run typecheck && npm test
 ```
 
 CI runs the same on every push/PR. Tests use a temporary directory, never your

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -25,6 +25,7 @@ from app.schemas.metrics import (
     MetricsTodayBlock,
 )
 from app.schemas.post import PostOut
+from app.services import discovery_job, load_cv_master
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -33,12 +34,11 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 def today_metrics(db: Session = Depends(get_db)) -> MetricsToday:
     today_start = datetime.combine(datetime.utcnow().date(), time.min)
 
-    new_jobs = db.execute(
-        select(func.count(Job.id)).where(Job.created_at >= today_start)
-    ).scalar() or 0
-    jobs_above_70 = db.execute(
-        select(func.count(Job.id)).where(Job.match_score >= 70, Job.status == "detected")
-    ).scalar() or 0
+    cv = load_cv_master()
+    candidates = db.scalars(select(Job).where(or_(Job.created_at >= today_start, Job.status == "detected"))).all()
+    current = [item for job in candidates if (item := discovery_job(job, cv)) is not None]
+    new_jobs = sum(job.created_at >= today_start for job in current)
+    jobs_above_70 = sum(job.match_score >= 70 and job.status == "detected" for job in current)
     applications_prepared = db.execute(
         select(func.count(Job.id)).where(Job.status == "prepared")
     ).scalar() or 0

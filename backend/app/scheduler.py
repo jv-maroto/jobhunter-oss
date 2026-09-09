@@ -33,7 +33,7 @@ async def _job_scrape() -> None:
     logger.info("scheduler: running scrape+ingest")
     db = SessionLocal()
     try:
-        result = await scrape_and_ingest(db)
+        result = await scrape_and_ingest(db, trigger="scheduler")
         logger.info("scheduler: scrape result %s", result)
     except Exception as exc:  # noqa: BLE001
         logger.exception("scheduler scrape failed: %s", exc)

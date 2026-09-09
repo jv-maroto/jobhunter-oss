@@ -139,7 +139,7 @@ class TecnoempleoScraper(BaseScraper):
                 q2 = re.sub(r"\b(remote|remoto)\b", "", q, flags=re.IGNORECASE).strip()
                 if q2 and q2.lower() not in {c.lower() for c in cleaned}:
                     cleaned.append(q2)
-            self.queries = cleaned[:8] or list(DEFAULT_QUERIES)
+            self.queries = cleaned or list(DEFAULT_QUERIES)
 
     async def fetch(self) -> list[ScrapedJob]:
         jobs: list[ScrapedJob] = []

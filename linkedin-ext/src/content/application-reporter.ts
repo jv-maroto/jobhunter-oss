@@ -12,21 +12,20 @@ import { api, type ApplyQueueTask } from "../lib/api";
 
 const PANEL_ID = "jobhunter-apply-panel";
 
-function norm(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function urlIdentity(value: string): string | null {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return null;
+  }
 }
 
 function matchTask(tasks: ApplyQueueTask[]): ApplyQueueTask | null {
-  const href = location.href.toLowerCase();
-  const host = location.hostname.toLowerCase();
-  const title = norm(document.title);
-  for (const t of tasks) {
-    const url = (t.apply_url || "").toLowerCase();
-    if (url && (href.includes(url) || url.includes(host))) return t;
-    const company = norm(t.company);
-    if (company.length >= 3 && title.includes(company)) return t;
-  }
-  return null;
+  const href = urlIdentity(location.href);
+  if (!href) return null;
+  return tasks.find(task => urlIdentity(task.apply_url) === href) ?? null;
 }
 
 function buildPanel(task: ApplyQueueTask): void {
@@ -56,12 +55,16 @@ function buildPanel(task: ApplyQueueTask): void {
   }
 
   const btn = document.createElement("button");
-  btn.textContent = "✅ Marcar como enviada";
+  btn.textContent = "✅ Ya envié esta candidatura";
   btn.style.cssText = [
     "width:100%", "padding:8px", "border-radius:8px", "cursor:pointer",
     "background:#1f6feb22", "color:#58a6ff", "border:1px solid #1f6feb55", "font-weight:600"
   ].join(";");
   btn.onclick = async () => {
+    if (!matchTask([task])) {
+      panel.remove();
+      return;
+    }
     btn.disabled = true;
     btn.textContent = "Enviando…";
     try {

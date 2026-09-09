@@ -24,13 +24,16 @@ QUERIES = ["python", "developer", "devops", "fullstack", "data engineer"]
 class PlatsbankenScraper(BaseScraper):
     name = "platsbanken"
 
+    def configure(self, *, regions=None, queries=None, prefs=None) -> None:
+        self.queries = list(queries) if queries else list(QUERIES)
+
     async def fetch(self) -> list[ScrapedJob]:
         jobs: list[ScrapedJob] = []
         seen: set[str] = set()
         headers = {"accept": "application/json", "User-Agent": "jobhunter"}
         try:
             async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                for q in QUERIES:
+                for q in getattr(self, "queries", QUERIES):
                     try:
                         resp = await client.get(BASE_URL, params={"q": q, "limit": 25})
                         resp.raise_for_status()

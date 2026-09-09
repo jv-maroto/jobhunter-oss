@@ -8,6 +8,12 @@ __pycache__/
 venv/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
 .pytest_cache/
 .ruff_cache/
 
@@ -20,8 +26,9 @@ dist/
 
 # Env / secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 
 # Perfil personal: tu CV NO se versiona. El repo solo trae la plantilla
 # `cv_master.example.json`; en el primer arranque se copia a `cv_master.json`
@@ -33,6 +40,10 @@ backend/data/onboarding_draft.json
 backend/data/integrations/
 
 # Data generated
+/output/
+/.codegraph
+*.log
+*.log.*
 backend/data/applications/
 backend/data/posts/
 backend/data/cache/
@@ -53,7 +64,7 @@ Thumbs.db
 # Capturas/notas locales
 Captura*.png
 
-# Personal (Javier) local export folder
+# Local application exports
 cvs-out/*
 !cvs-out/README.md
 

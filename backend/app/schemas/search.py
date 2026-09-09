@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.schemas.job import EmploymentType
 
 
 class PlatformInfo(BaseModel):
@@ -13,11 +17,8 @@ class PlatformInfo(BaseModel):
     apply_support: str = ""
     tos_risk: str = ""
     enabled_by_default: bool = False
-    # ¿Hay un scraper detras de verdad? Si es False, activarla no busca nada.
     implemented: bool = False
-    # "available" | "planned" (declarada, sin scraper) | "apply_only" (solo autorrelleno)
     status: str = "available"
-    # Clave de entorno necesaria (p.ej. adzuna_app_id); si falta, se autodesactiva.
     requires_env: str | None = None
     notes: str | None = None
 
@@ -35,18 +36,58 @@ class SearchProfileIn(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    region_preset: str | None = None
-    regions: list[str] | None = None
+    region_preset: Literal["all_europe", "only_spain", "only_switzerland", "remote_worldwide", "custom"] | None = None
+    regions: list[str] | None = Field(default=None, max_length=32)
     platforms: dict[str, bool] | None = None
+    roles: list[str] | None = Field(default=None, max_length=30)
+    employment_types: list[EmploymentType] | None = None
+    seniority: Literal["junior", "mid", "senior", "lead"] | None = None
     residence_country: str | None = None
     queries_auto: bool | None = None
-    queries: list[str] | None = None
-    max_queries: int | None = None
-    results_per_query: int | None = None
-    hours_old: int | None = None
-    salary_min_eur: int | None = None
-    salary_max_eur: int | None = None
+    queries: list[str] | None = Field(default=None, max_length=100)
+    max_queries: int | None = Field(default=None, ge=1, le=100)
+    results_per_query: int | None = Field(default=None, ge=1, le=100)
+    hours_old: int | None = Field(default=None, ge=1, le=8760)
+    salary_min: int | None = Field(default=None, ge=0)
+    salary_max: int | None = Field(default=None, ge=0)
+    salary_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    salary_min_eur: int | None = Field(default=None, ge=0)
+    salary_max_eur: int | None = Field(default=None, ge=0)
     remote_only: bool | None = None
     exclude_keywords: list[str] | None = None
     work_authorization_eu: bool | None = None
     willing_to_relocate: bool | None = None
+
+    @field_validator("regions")
+    @classmethod
+    def validate_regions(cls, value: list[str] | None) -> list[str] | None:
+        from app.scrapers.country_map import COUNTRY_MAP
+        if value is None:
+            return None
+        result = list(dict.fromkeys(r.strip().upper() for r in value))
+        if any(r not in {*COUNTRY_MAP, "EU", "REMOTE"} for r in result):
+            raise ValueError("Unsupported search region")
+        return result
+
+    @field_validator("roles", "queries")
+    @classmethod
+    def clean_terms(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        out = []
+        seen = set()
+        for term in value:
+            term = term.strip()
+            if not term or len(term) > 160:
+                raise ValueError("Search terms must contain 1 to 160 characters")
+            if term.casefold() not in seen:
+                seen.add(term.casefold())
+                out.append(term)
+        return out
+
+    @model_validator(mode="after")
+    def validate_salary_range(self):
+        for low, high in ((self.salary_min, self.salary_max), (self.salary_min_eur, self.salary_max_eur)):
+            if low is not None and high is not None and high < low:
+                raise ValueError("Maximum salary must be at least the minimum salary")
+        return self

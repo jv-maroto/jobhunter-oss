@@ -21,26 +21,30 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { JobTable } from "@/components/jobs/JobTable";
-import { useJobs } from "@/hooks/useJobs";
+import { useJobsPage } from "@/hooks/useJobs";
+import { AddJobDialog } from "@/components/jobs/AddJobDialog";
 import { useScrapeStatus } from "@/hooks/useScrapeStatus";
 import { api } from "@/lib/api";
-import type { JobTrack } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { JOB_STATUSES, type JobStatus, type JobTrack } from "@/lib/types";
+import { TrackFilter } from "@/components/jobs/TrackFilter";
 
-const SOURCES = ["all", "linkedin", "indeed", "remotive", "tecnoempleo", "jobspy-sysadmin"];
-const STATUS_OPTIONS = ["detected", "prepared", "applied", "interviewing", "offer"];
+const SOURCES = ["all", "manual", "linkedin", "indeed", "remotive", "tecnoempleo", "jobspy-sysadmin"];
+const STATUS_OPTIONS = JOB_STATUSES;
 
 export default function JobsPage() {
-  const [track, setTrack] = React.useState<JobTrack>("dev");
-  const [minScore, setMinScore] = React.useState(70);
+  const [track, setTrack] = React.useState<JobTrack | undefined>(undefined);
+  const [minScore, setMinScore] = React.useState(0);
   const [source, setSource] = React.useState<string>("all");
-  const [status, setStatus] = React.useState<string>("detected");
+  const [status, setStatus] = React.useState<JobStatus>("detected");
+  const [offset, setOffset] = React.useState(0);
 
-  const jobs = useJobs({
+  const jobs = useJobsPage({
     min_score: minScore,
     source: source === "all" ? undefined : source,
-    status: status as never,
+    status,
     track,
+    limit: 50,
+    offset,
   });
 
   // Shared scrape status (persists across tab switches, polls in background,
@@ -68,7 +72,8 @@ export default function JobsPage() {
     }
   };
 
-  const list = jobs.data ?? [];
+  const list = jobs.data?.items ?? [];
+  const total = jobs.data?.total ?? 0;
 
   return (
     <div className="space-y-4">
@@ -80,14 +85,14 @@ export default function JobsPage() {
               All jobs
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Track separado para Dev y SysAdmin. Por defecto solo se muestran ofertas
-              <span className="mono"> detected</span> — cambia el filtro de status para ver el resto.
+              Review evidence and requirements before preparing an application. Save postings from any board to keep them in your workspace.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" size="sm" className="mono">
-              {list.length} listed
+              {total} jobs
             </Badge>
+            <AddJobDialog />
             <Button
               variant="outline"
               size="sm"
@@ -104,18 +109,7 @@ export default function JobsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Track tabs */}
-          <div className="inline-flex rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))]/60 p-1 w-full sm:w-auto">
-            <TabButton active={track === "dev"} onClick={() => setTrack("dev")}>
-              Dev / Full-Stack · AI
-            </TabButton>
-            <TabButton
-              active={track === "sysadmin"}
-              onClick={() => setTrack("sysadmin")}
-            >
-              SysAdmin · DevOps
-            </TabButton>
-          </div>
+          <TrackFilter value={track} onChange={(value) => { setTrack(value); setOffset(0); }} />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="space-y-1.5">
@@ -123,7 +117,7 @@ export default function JobsPage() {
                 <Filter className="h-3 w-3" />
                 Status
               </label>
-              <Select value={status} onValueChange={setStatus}>
+              <Select value={status} onValueChange={(value) => { setStatus(value as JobStatus); setOffset(0); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -141,7 +135,7 @@ export default function JobsPage() {
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 Source
               </label>
-              <Select value={source} onValueChange={setSource}>
+              <Select value={source} onValueChange={(value) => { setSource(value); setOffset(0); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -157,14 +151,14 @@ export default function JobsPage() {
 
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground inline-flex items-center justify-between w-full">
-                <span>Min match %</span>
+                <span>Min fit score</span>
                 <span className="mono text-[hsl(var(--accent-1))]">
                   {minScore}
                 </span>
               </label>
               <Slider
                 value={[minScore]}
-                onValueChange={(v) => setMinScore(v[0])}
+                onValueChange={(v) => { setMinScore(v[0]); setOffset(0); }}
                 min={0}
                 max={100}
                 step={5}
@@ -174,35 +168,17 @@ export default function JobsPage() {
 
           {jobs.isLoading ? (
             <Skeleton className="h-64 w-full" />
+          ) : jobs.error ? (
+            <p role="alert" className="text-sm text-rose-400">No se pudieron cargar las ofertas. <button className="underline" onClick={() => void jobs.refetch()}>Reintentar</button></p>
           ) : (
             <JobTable jobs={list} />
           )}
+          {total > 50 && <div className="flex justify-between items-center gap-3 text-sm">
+            <span>{offset + 1}–{Math.min(offset + list.length, total)} of {total}</span>
+            <div className="flex gap-2"><Button variant="outline" disabled={offset === 0 || jobs.isFetching} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</Button><Button variant="outline" disabled={offset + 50 >= total || jobs.isFetching} onClick={() => setOffset(offset + 50)}>Next</Button></div>
+          </div>}
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex-1 sm:flex-initial px-4 py-2 text-xs font-medium rounded-lg transition-colors",
-        active
-          ? "bg-[hsl(var(--accent-1))]/15 text-[hsl(var(--accent-1))] border border-[hsl(var(--accent-1))]/40"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }

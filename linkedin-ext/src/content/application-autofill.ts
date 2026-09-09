@@ -36,6 +36,9 @@ type FieldKey =
   | "years_experience"
   | "salary_expectation"
   | "work_authorization_eu"
+  | "work_authorization_ch"
+  | "work_authorization_us"
+  | "requires_sponsorship_us"
   | "willing_to_relocate"
   | "remote_preference"
   | "notice_period"
@@ -52,15 +55,9 @@ type FieldKey =
   | "success_measurement"
   | "used_our_product"
   | "mission_alignment"
-  // Synthetic keys: do not match anything in Profile, value is provided inline.
-  | "__skip__"
-  | "__answer_no__"
-  | "__answer_yes__";
+  | "__skip__";
 
-type Profile = Record<
-  Exclude<FieldKey, "__skip__" | "__answer_no__" | "__answer_yes__">,
-  string | boolean | number
->;
+type Profile = Partial<Record<Exclude<FieldKey, "__skip__">, string | boolean | number | null>>;
 
 interface FieldRule {
   key: FieldKey;
@@ -88,9 +85,8 @@ const RULES: FieldRule[] = [
     ],
   },
 
-  // ===== US-SPECIFIC AUTH (you are NOT US-authorized) =====
   {
-    key: "__answer_no__",
+    key: "work_authorization_us",
     priority: 950,
     patterns: [
       /\bU\.?S\.? work authoriz/i,
@@ -100,9 +96,8 @@ const RULES: FieldRule[] = [
     ],
   },
 
-  // ===== US-SPECIFIC SPONSORSHIP (you DO need sponsorship to work in US) =====
   {
-    key: "__answer_yes__",
+    key: "requires_sponsorship_us",
     priority: 940,
     patterns: [
       /\b(?:require|need)\s+(?:sponsorship|visa)\b.*\b(?:us|united states)\b/i,
@@ -111,38 +106,39 @@ const RULES: FieldRule[] = [
     ],
   },
 
-  // ===== EU / "any of these EU countries" auth (Yes) =====
   {
-    key: "__answer_yes__",
+    key: "work_authorization_ch",
+    priority: 935,
+    patterns: [
+      /\b(?:authori[sz]ed|eligible|right|legally able)\b.*\bwork\b.*\b(?:switzerland|swiss)\b/i,
+      /\bswiss work authori[sz]/i,
+    ],
+  },
+  {
+    key: "work_authorization_eu",
     priority: 930,
     patterns: [
       /\b(?:legally )?(?:able to )?work\b.*\b(?:spain|france|portugal|germany|italy|netherlands|belgium|ireland|austria|sweden|denmark|finland|poland|EU|european union)\b/i,
-      /\beligible to work in\b.*\b(?:spain|europe|the eu|france|portugal|germany|italy)\b/i,
-      /\bEU (?:citizen|national|resident)\b/i,
-      /\bwork (?:permit|authoriz).*(?:EU|European Union|Spain|Europe)\b/i,
+      /\beligible to work in\b.*\b(?:spain|the eu|france|portugal|germany|italy)\b/i,
+      /\bwork authoriz.*(?:EU|European Union|Spain)\b/i,
     ],
   },
 
-  // ===== Based in / willing to relocate to EU country (Yes) =====
   {
-    key: "__answer_yes__",
+    key: "__skip__",
     priority: 920,
     patterns: [
-      /\b(?:based in|willing to relocate).*\b(?:spain|france|portugal|germany|italy|belgium|netherlands|EU|europe)\b/i,
-      /\bcurrently based in.*\b(?:spain|europe|france|portugal)\b/i,
+      /\b(?:based in|resident|citizen|national|permit|sponsorship|visa)\b/i,
+      /\bwilling to relocate.*\b(?:spain|france|portugal|germany|italy|belgium|netherlands|EU|europe)\b/i,
     ],
   },
 
-  // ===== Minimum N years experience — answer Yes if N <= your years =====
-  // Your years of experience come from cv_master.json; the exact comparison
-  // happens at fill time.
   {
-    key: "__answer_yes__",
+    key: "__skip__",
     priority: 910,
     patterns: [
-      /\bminimum of (?:1|2|3|4) years? of experience\b/i,
-      /\bat least (?:1|2|3|4) years? of experience\b/i,
-      /\b(?:1|2|3|4)\+? years? of experience\b/i,
+      /\b(?:minimum of|at least) \d+(?:\.\d+)? years?\b/i,
+      /\b\d+(?:\.\d+)?\+? years? of experience\b/i,
     ],
   },
 
@@ -432,20 +428,7 @@ const RULES: FieldRule[] = [
   },
 ];
 
-const STORAGE_KEY = "jobhunter_profile";
-const STORAGE_TTL_MS = 1000 * 60 * 60; // 1h
-
 async function loadProfile(): Promise<Profile | null> {
-  // Try cache first
-  try {
-    const cached = await chrome.storage.session.get(STORAGE_KEY);
-    const entry = cached[STORAGE_KEY];
-    if (entry && Date.now() - entry.fetched_at < STORAGE_TTL_MS) {
-      return entry.data as Profile;
-    }
-  } catch {
-    /* session storage may not exist */
-  }
   if (!chrome.runtime?.id) {
     console.log(`${ORIGIN_TAG} extension context invalidated — please F5 to reactivate`);
     return null;
@@ -460,13 +443,6 @@ async function loadProfile(): Promise<Profile | null> {
       return null;
     }
     const data = response.data as Profile;
-    try {
-      await chrome.storage.session.set({
-        [STORAGE_KEY]: { data, fetched_at: Date.now() },
-      });
-    } catch {
-      /* ignore */
-    }
     return data;
   } catch (e) {
     const msg = (e as Error).message;
@@ -577,7 +553,7 @@ function matchRule(layers: string[]): FieldRule | null {
       // Skip / special rules only fire if they match the FIRST 2 layers
       // (input itself or its label). Otherwise neighboring "password" field
       // could nuke unrelated inputs.
-      const isSpecial = rule.key.startsWith("__");
+      const isSpecial = (rule.priority ?? 0) >= 900;
       if (isSpecial && i >= 2) continue;
       if (rule.patterns.some((p) => p.test(layer))) {
         return rule;
@@ -676,10 +652,9 @@ function valueForRule(
   profile: Profile,
 ): string | boolean | number | null {
   if (rule.key === "__skip__") return null;
-  if (rule.key === "__answer_no__") return "No";
-  if (rule.key === "__answer_yes__") return "Yes";
   const v = (profile as Record<string, string | boolean | number>)[rule.key];
   if (v === undefined || v === null || v === "") return null;
+  if (typeof v === "boolean") return v ? "Yes" : "No";
   return v;
 }
 
@@ -998,23 +973,6 @@ async function mount(): Promise<void> {
   }
   console.log(`${ORIGIN_TAG} mount`);
 
-  const profile = await loadProfile();
-  if (!profile) {
-    if (IS_TOP) {
-      mounted = true;
-      mountOverlay(async () => ({ filled: 0, skipped: 0, byKey: {} }));
-      const root = document.getElementById(OVERLAY_ID);
-      if (root) {
-        const note = root.querySelector("div") as HTMLDivElement | null;
-        if (note) {
-          note.style.display = "block";
-          note.textContent =
-            "Backend offline. Start the JobHunter dashboard (localhost:8000) to enable auto-fill.";
-        }
-      }
-    }
-    return;
-  }
   // Only the top frame shows the overlay UI; iframes register a listener so
   // they can run autoFillForm() inside their own DOM on demand.
   if (!IS_TOP) {
@@ -1028,6 +986,8 @@ async function mount(): Promise<void> {
         );
         return;
       }
+      const profile = await loadProfile();
+      if (!profile) return;
       const result = await autoFillForm(profile);
       // Responde solo al origen que lo pidió, no a "*".
       (ev.source as Window).postMessage(
@@ -1041,6 +1001,8 @@ async function mount(): Promise<void> {
   }
   mounted = true;
   mountOverlay(async () => {
+    const profile = await loadProfile();
+    if (!profile) throw new Error("Profile unavailable. Start the backend and retry.");
     const localResult = await autoFillForm(profile);
     // Also request iframes to fill themselves
     const iframes = Array.from(document.querySelectorAll("iframe"));

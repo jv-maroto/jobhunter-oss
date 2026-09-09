@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { api, ApiError } from "@/lib/api";
+import { JOB_TRACK_LABELS } from "@/lib/types";
 import { LanguageToggle, useLang } from "@/lib/i18n";
 import {
   COUNTRY_OPTIONS,
@@ -31,6 +33,7 @@ const ORDER: Step[] = ["welcome", "ai", "github", "linkedin", "cv", "regions", "
 
 const PRESET_T: Record<string, string> = {
   only_spain: "rg_preset_es",
+  only_switzerland: "rg_preset_ch",
   all_europe: "rg_preset_eu",
   remote_worldwide: "rg_preset_remote",
 };
@@ -61,7 +64,7 @@ const SOURCE_COLORS: Record<string, string> = {
 export default function OnboardingPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const { t } = useLang();
+  const { t, lang } = useLang();
 
   const [step, setStep] = React.useState<Step>("welcome");
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -76,6 +79,7 @@ export default function OnboardingPage() {
   const [aiMode, setAiMode] = React.useState<AiMode>("local");
   const [aiProvider, setAiProvider] = React.useState<AiProvider>("anthropic");
   const [aiKey, setAiKey] = React.useState("");
+  const [aiCodexOk, setAiCodexOk] = React.useState(false);
   const [aiLocalOk, setAiLocalOk] = React.useState(true);
   // Ollama responde pero el modelo no esta descargado -> aviso con el `ollama pull`.
   const [aiLocalModel, setAiLocalModel] = React.useState<{ name: string; server: boolean; ok: boolean }>({
@@ -94,6 +98,77 @@ export default function OnboardingPage() {
   const [merge, setMerge] = React.useState<MergeResult | null>(null);
   const [cv, setCv] = React.useState<CvMaster | null>(null);
   const [rawOpen, setRawOpen] = React.useState(false);
+  const [seeded, setSeeded] = React.useState(false);
+  const [loadError, setLoadError] = React.useState(false);
+  const [mergeError, setMergeError] = React.useState(false);
+  const draftWrite = React.useRef<Promise<void>>(Promise.resolve());
+  const [savedDraft, setSavedDraft] = React.useState<string | null>(null);
+  const [draftState, setDraftState] = React.useState<"saved" | "saving" | "error">("saved");
+
+  const loadProfile = React.useCallback(async () => {
+    try {
+      const draft = await onboardingApi.draft();
+      let profile = draft.merged?.cv_master ?? draft.base;
+      if (!profile) {
+        try { profile = await api<CvMaster>("/settings/cv_master"); }
+        catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 404) throw error;
+          profile = emptyCv();
+        }
+      }
+      if (profile._README) profile = emptyCv();
+      return { draft, profile };
+    } catch { throw new Error("Could not restore profile"); }
+  }, []);
+
+  const restoreProfile = React.useCallback(({ draft, profile }: Awaited<ReturnType<typeof loadProfile>>) => {
+      const prefs = profile.search_preferences ?? {};
+      setCv(profile);
+      setMerge(draft.merged ? { ...draft.merged, field_sources: draft.merged.field_sources ?? {}, conflicts: draft.merged.conflicts ?? [] } : null);
+      setDone(Object.fromEntries(Object.keys(draft.fragments ?? {}).map((source) => [source, true])));
+      setRegionPreset(typeof prefs.region_preset === "string" && prefs.region_preset !== "custom" ? prefs.region_preset : null);
+      setCustomRegions(Array.isArray(prefs.regions) ? prefs.regions as string[] : [...(REGION_PRESETS.find((p) => p.id === prefs.region_preset)?.regions ?? (Array.isArray(prefs.preferred_countries) ? prefs.preferred_countries as string[] : []))]);
+      setSelectedRoles(Array.isArray(prefs.roles) ? prefs.roles as string[] : []);
+      setSeeded(true);
+  }, []);
+
+  const reloadProfile = React.useCallback(() => loadProfile().then(restoreProfile).catch(() => setLoadError(true)), [loadProfile, restoreProfile]);
+
+  React.useEffect(() => { void reloadProfile(); }, [reloadProfile]);
+
+  const draftCv = React.useMemo(() => cv ? {
+    ...cv,
+    skills: Object.fromEntries(Object.entries(cv.skills ?? {}).map(([group, values]) => [group, [...new Set(values.map((v) => v.trim()).filter(Boolean))]])),
+    search_preferences: {
+      ...cv.search_preferences,
+      region_preset: regionPreset ?? "custom",
+      regions: [...customRegions],
+      roles: [...selectedRoles],
+    },
+  } : null, [cv, regionPreset, customRegions, selectedRoles]);
+
+  const saveDraft = React.useCallback(async () => {
+    if (!draftCv) return;
+    setDraftState("saving");
+    const write = draftWrite.current.catch(() => {}).then(async () => { await onboardingApi.saveDraft(draftCv); });
+    draftWrite.current = write;
+    try { await write; setSavedDraft(JSON.stringify(draftCv)); setDraftState("saved"); }
+    catch { setDraftState("error"); }
+  }, [draftCv]);
+
+  React.useEffect(() => {
+    if (!seeded || !draftCv || busy || step === "done") return;
+    const timer = window.setTimeout(() => { void saveDraft(); }, 750);
+    return () => window.clearTimeout(timer);
+  }, [seeded, draftCv, saveDraft, step, busy]);
+
+  const draftPending = seeded && (draftState !== "saved" || JSON.stringify(draftCv) !== savedDraft);
+  React.useEffect(() => {
+    if (!draftPending || step === "done") return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [draftPending, step]);
 
   const idx = ORDER.indexOf(step);
   const goTo = (s: Step) => setStep(s);
@@ -104,7 +179,9 @@ export default function OnboardingPage() {
     if (!githubUser.trim()) return;
     setBusy("github");
     try {
+      await saveDraft();
       await onboardingApi.github(githubUser.trim());
+      setMerge(null);
       setDone((d) => ({ ...d, github: true }));
       toast.success(t("t_gh_ok"));
       next();
@@ -122,7 +199,9 @@ export default function OnboardingPage() {
     }
     setBusy("li-paste");
     try {
+      await saveDraft();
       await onboardingApi.linkedinPaste(liText.trim());
+      setMerge(null);
       setDone((d) => ({ ...d, linkedin: true }));
       toast.success(t("t_li_ok"));
       next();
@@ -136,8 +215,10 @@ export default function OnboardingPage() {
   async function uploadFile(kind: "cv" | "linkedin", file: File) {
     setBusy(kind);
     try {
+      await saveDraft();
       const res =
         kind === "cv" ? await onboardingApi.uploadCv(file) : await onboardingApi.uploadLinkedin(file);
+      setMerge(null);
       setDone((d) => ({ ...d, [kind]: true }));
       const warns = res.warnings ?? [];
       if (warns.length) toast.warning(warns[0]);
@@ -152,21 +233,22 @@ export default function OnboardingPage() {
 
   const runMerge = React.useCallback(async () => {
     setBusy("merge");
+    setMergeError(false);
     try {
+      await draftWrite.current.catch(() => {});
       const res = await onboardingApi.merge();
       setMerge(res);
       setCv(res.cv_master);
     } catch {
-      setMerge({ cv_master: emptyCv(), field_sources: {}, conflicts: [], llm_used: false });
-      setCv(emptyCv());
+      setMergeError(true);
     } finally {
       setBusy(null);
     }
   }, []);
 
   React.useEffect(() => {
-    if (step === "review" && !merge) void runMerge();
-  }, [step, merge, runMerge]);
+    if (seeded && step === "review" && !merge && !mergeError) void runMerge();
+  }, [seeded, step, merge, mergeError, runMerge]);
 
   const loadRoles = React.useCallback(async () => {
     setBusy("roles");
@@ -174,8 +256,7 @@ export default function OnboardingPage() {
       const res = await onboardingApi.suggestRoles();
       const roles = res.roles ?? [];
       setRoleSuggestions(roles);
-      // Pre-seleccionamos todas las sugerencias; el usuario quita las que no encajen.
-      setSelectedRoles((cur) => (cur.length ? cur : roles.map((r) => r.label)));
+      // Suggestions are choices, never evidence or permission to expand saved roles.
     } catch {
       setRoleSuggestions([]); // sin IA/backend: el usuario añade los suyos a mano
     } finally {
@@ -208,7 +289,9 @@ export default function OnboardingPage() {
       setAiLocalOk(localOk);
       setAiLocalModel({ name: s.local_model, server: s.local_available, ok: s.local_model_available });
       setAiProvider(s.ai_cloud_provider);
-      if (s.has_key.anthropic || s.has_key.openai || s.has_key.gemini) setAiMode("cloud");
+      setAiCodexOk(s.codex_available);
+      if (s.ai_mode === "codex") setAiMode("codex");
+      else if (s.has_key.anthropic || s.has_key.openai || s.has_key.gemini) setAiMode("cloud");
       else if (localOk) setAiMode("local");
       else setAiMode("off");
     } catch {
@@ -258,19 +341,21 @@ export default function OnboardingPage() {
       return;
     }
     const finalCv: CvMaster = {
-      ...cv,
+      ...draftCv,
       search_preferences: {
         ...(cv.search_preferences ?? {}),
         region_preset: regionPreset ?? "custom",
         regions: [...regions],
         roles: [...selectedRoles],
-        queries_auto: true,
+        queries_auto: cv.search_preferences?.queries_auto ?? true,
       },
     };
     setBusy("complete");
     try {
+      await draftWrite.current.catch(() => {});
       await onboardingApi.complete(finalCv);
       await qc.invalidateQueries({ queryKey: ["onboarding", "status"] });
+      await qc.invalidateQueries({ queryKey: ["search-profile"] });
       setStep("done");
     } catch {
       toast.error(t("t_saved_err"));
@@ -284,6 +369,11 @@ export default function OnboardingPage() {
     setCustomRegions((r) => (r.includes(iso) ? r.filter((x) => x !== iso) : [...r, iso]));
   }
 
+  if (!seeded) return <div className="p-6 text-sm" role={loadError ? "alert" : "status"}>
+    {loadError ? (lang === "es" ? "No se pudo recuperar tu perfil. Tus datos no se han modificado." : "Could not restore your profile. Your data has not changed.") : (lang === "es" ? "Cargando tu perfil…" : "Loading your profile…")}
+    {loadError && <Button className="ml-3" onClick={() => { setLoadError(false); void reloadProfile(); }}>{lang === "es" ? "Reintentar" : "Retry"}</Button>}
+  </div>;
+
   return (
     <div className="fixed inset-0 z-[100] overflow-y-auto bg-[hsl(var(--background))]/95 backdrop-blur-xl">
       <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 px-5 py-10">
@@ -291,7 +381,12 @@ export default function OnboardingPage() {
           <Stepper step={step} />
           <LanguageToggle />
         </div>
+        <p role="status" className="text-xs text-muted-foreground">
+          {draftState === "error" ? (lang === "es" ? "No se pudo guardar el borrador." : "Draft could not be saved.") : draftPending ? (lang === "es" ? "Guardando borrador…" : "Saving draft…") : (lang === "es" ? "Borrador guardado" : "Draft saved")}
+          {draftState === "error" && <button className="ml-2 underline" onClick={() => void saveDraft()}>{lang === "es" ? "Reintentar" : "Retry"}</button>}
+        </p>
 
+        <fieldset disabled={busy !== null} className="min-w-0 space-y-4">
         {step === "welcome" && (
           <WelcomeStep onStart={() => goTo("ai")} onManual={() => goTo("ai")} />
         )}
@@ -305,6 +400,13 @@ export default function OnboardingPage() {
             nextLabel={busy === "ai" ? t("saving") : t("ai_continue")}
           >
             <div className="flex flex-col gap-2">
+              <AiModeOption
+                active={aiMode === "codex"}
+                disabled={!aiCodexOk}
+                title={t("ai_codex")}
+                desc={aiCodexOk ? t("ai_codex_desc") : t("ai_codex_unavailable")}
+                onClick={() => aiCodexOk && setAiMode("codex")}
+              />
               <AiModeOption
                 active={aiMode === "local"}
                 disabled={!aiLocalOk}
@@ -445,7 +547,7 @@ export default function OnboardingPage() {
                   active={regionPreset === p.id}
                   onClick={() => {
                     setRegionPreset(p.id);
-                    setCustomRegions([]);
+                    setCustomRegions([...p.regions]);
                   }}
                 >
                   {t(PRESET_T[p.id] ?? p.id)}
@@ -481,22 +583,8 @@ export default function OnboardingPage() {
                   <p className="mb-3 text-xs text-muted-foreground">{t("roles_empty")}</p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {(roleSuggestions ?? []).map((r) => (
-                    <Chip
-                      key={r.id}
-                      active={selectedRoles.includes(r.label)}
-                      onClick={() => toggleRole(r.label)}
-                      title={r.why}
-                    >
-                      {r.label}
-                    </Chip>
-                  ))}
-                  {extraRoles.map((label) => (
-                    <Chip
-                      key={`x:${label}`}
-                      active={selectedRoles.includes(label)}
-                      onClick={() => toggleRole(label)}
-                    >
+                  {Array.from(new Set([...Object.values(JOB_TRACK_LABELS), ...(roleSuggestions ?? []).map((r) => r.label), ...selectedRoles, ...extraRoles])).map((label) => (
+                    <Chip key={label} active={selectedRoles.includes(label)} onClick={() => toggleRole(label)} title={roleSuggestions?.find((r) => r.label === label)?.why}>
                       {label}
                     </Chip>
                   ))}
@@ -504,6 +592,7 @@ export default function OnboardingPage() {
 
                 <div className="mt-4 flex gap-2">
                   <Input
+                    aria-label={t("roles_add_ph")}
                     placeholder={t("roles_add_ph")}
                     value={customRole}
                     onChange={(e) => setCustomRole(e.target.value)}
@@ -527,17 +616,26 @@ export default function OnboardingPage() {
           </StepCard>
         )}
 
-        {step === "review" && (
+        {step === "review" && mergeError && <div role="alert" className="rounded-lg border p-4 text-sm">
+          {lang === "es" ? "No se pudieron fusionar las fuentes. Se conserva tu borrador." : "Could not merge the sources. Your draft has been preserved."}
+          <Button className="ml-2" onClick={() => void runMerge()}>{lang === "es" ? "Reintentar" : "Retry"}</Button>
+        </div>}
+        {step === "review" && !mergeError && (
           <ReviewStep
             busy={busy}
-            cv={cv}
+            cv={cv && { ...cv, search_preferences: draftCv?.search_preferences }}
             merge={merge}
             rawOpen={rawOpen}
             setRawOpen={setRawOpen}
             onBack={back}
             onPatchPersonal={patchPersonal}
             onPatchField={(k, v) => setCv((c) => (c ? { ...c, [k]: v } : c))}
-            onSetCv={setCv}
+            onSetCv={(value) => {
+              setCv(value);
+              if (Array.isArray(value.search_preferences?.roles)) setSelectedRoles(value.search_preferences.roles as string[]);
+              if (Array.isArray(value.search_preferences?.regions)) setCustomRegions(value.search_preferences.regions as string[]);
+              if (typeof value.search_preferences?.region_preset === "string") setRegionPreset(value.search_preferences.region_preset === "custom" ? null : value.search_preferences.region_preset);
+            }}
             onSave={saveProfile}
           />
         )}
@@ -561,6 +659,7 @@ export default function OnboardingPage() {
             </CardContent>
           </Card>
         )}
+        </fieldset>
       </div>
     </div>
   );
@@ -572,7 +671,7 @@ function Stepper({ step }: { step: Step }) {
   const { t } = useLang();
   const idx = ORDER.indexOf(step);
   return (
-    <div className="flex flex-1 items-center justify-between gap-1">
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
       {ORDER.map((s, i) => (
         <div key={s} className="flex flex-1 flex-col items-center gap-1.5">
           <div
@@ -581,7 +680,7 @@ function Stepper({ step }: { step: Step }) {
               i <= idx ? "bg-[hsl(var(--accent-1))]" : "bg-white/10",
             )}
           />
-          <span className={cn("text-[10px]", i === idx ? "text-foreground" : "text-muted-foreground")}>
+          <span className={cn("text-[10px]", i === idx ? "text-foreground" : "hidden sm:inline text-muted-foreground")}>
             {t(`step_${s}`)}
           </span>
         </div>
@@ -676,6 +775,8 @@ function Chip({
 }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       title={title}
       className={cn(
@@ -715,9 +816,14 @@ function FileDrop({
         e.preventDefault();
         setDrag(false);
         const f = e.dataTransfer.files?.[0];
-        if (f) onFile(f);
+        if (f && !busy) onFile(f);
       }}
-      onClick={() => inputRef.current?.click()}
+      role="button"
+      tabIndex={busy ? -1 : 0}
+      aria-label={label}
+      aria-disabled={busy}
+      onKeyDown={(e) => { if (!busy && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); inputRef.current?.click(); } }}
+      onClick={() => { if (!busy) inputRef.current?.click(); }}
       className={cn(
         "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center text-sm transition-colors",
         drag
@@ -732,7 +838,7 @@ function FileDrop({
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) onFile(f);
+          if (f && !busy) onFile(f);
         }}
       />
       <span className="text-muted-foreground">{busy ? t("processing") : label}</span>
@@ -777,7 +883,10 @@ function ReviewStep({
   onSetCv: (c: CvMaster) => void;
   onSave: () => void;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const [rawText, setRawText] = React.useState<string | null>(null);
+  const rawDirty = rawText !== null;
+  const [rawError, setRawError] = React.useState(false);
 
   if (busy === "merge" || !cv) {
     return (
@@ -792,7 +901,7 @@ function ReviewStep({
   const fs = merge?.field_sources ?? {};
   const p = cv.personal ?? {};
   const skills = cv.skills ?? {};
-  const allSkills = Object.values(skills).flat();
+  const allSkills = Object.values(skills).flat().filter((value) => value.trim());
 
   const PERSONAL_FIELDS: { key: string; tk: string }[] = [
     { key: "name", tk: "f_name" },
@@ -812,7 +921,7 @@ function ReviewStep({
         <CardDescription>{t("rv_desc")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        {merge && merge.conflicts.length > 0 && (
+        {merge && (merge.conflicts ?? []).length > 0 && (
           <div className="rounded-md border border-[hsl(var(--accent-warn))]/40 bg-[hsl(var(--accent-warn))]/10 p-3 text-xs">
             <p className="mb-1 font-medium text-[hsl(var(--accent-warn))]">
               {merge.conflicts.length} {t("rv_conflicts")}
@@ -827,6 +936,7 @@ function ReviewStep({
           </div>
         )}
 
+        <fieldset disabled={rawDirty} className="min-w-0 space-y-5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {PERSONAL_FIELDS.map((f) => (
             <label key={f.key} className="flex flex-col gap-1 text-xs">
@@ -854,21 +964,28 @@ function ReviewStep({
           />
         </label>
 
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-muted-foreground">{lang === "es" ? "Resumen (EN)" : "Summary (EN)"}</span>
+          <Textarea rows={3} value={cv.summary_en ?? ""} onChange={(e) => onPatchField("summary_en", e.target.value)} />
+        </label>
+
+        <div className="space-y-3">
+          <p className="text-sm font-medium">{lang === "es" ? "Habilidades por categoría (una por línea)" : "Skills by category (one per line)"}</p>
+          {Object.entries(skills).map(([group, values]) => (
+            <label key={group} className="flex flex-col gap-1 text-xs">
+              <span className="text-muted-foreground">{group}</span>
+              <Textarea rows={Math.min(5, Math.max(2, values.length))} value={values.join("\n")} onChange={(e) => onSetCv({ ...cv, skills: { ...skills, [group]: e.target.value.split("\n") } })} />
+            </label>
+          ))}
+        </div>
+
         <div className="grid grid-cols-3 gap-3 text-center text-xs">
           <Stat n={cv.experience?.length ?? 0} label={t("rv_exp")} />
           <Stat n={allSkills.length} label={t("rv_skills")} />
           <Stat n={cv.projects?.length ?? 0} label={t("rv_proj")} />
         </div>
 
-        {allSkills.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {allSkills.slice(0, 24).map((s, i) => (
-              <span key={i} className="rounded bg-white/5 px-2 py-0.5 text-[11px] text-muted-foreground">
-                {s}
-              </span>
-            ))}
-          </div>
-        )}
+        </fieldset>
 
         <details open={rawOpen} onToggle={(e) => setRawOpen((e.target as HTMLDetailsElement).open)}>
           <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
@@ -877,23 +994,29 @@ function ReviewStep({
           <Textarea
             className="mt-2 font-mono text-[11px]"
             rows={12}
-            defaultValue={JSON.stringify(cv, null, 2)}
-            onBlur={(e) => {
-              try {
-                onSetCv(JSON.parse(e.target.value));
-                toast.success(t("t_json_ok"));
-              } catch {
-                toast.error(t("t_json_err"));
-              }
-            }}
+            aria-label={t("rv_json")}
+            value={rawText ?? JSON.stringify(cv, null, 2)}
+            onChange={(e) => { setRawText(e.target.value); setRawError(false); }}
           />
+          {rawError && <p role="alert" className="text-xs text-rose-400">{t("t_json_err")}</p>}
+          <Button className="mt-2" variant="outline" disabled={!rawDirty} onClick={() => {
+            try {
+              const parsed = JSON.parse(rawText ?? JSON.stringify(cv));
+              if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || (parsed.skills && (typeof parsed.skills !== "object" || Object.values(parsed.skills).some((values) => !Array.isArray(values) || values.some((v) => typeof v !== "string"))))) throw new Error("Invalid CV structure");
+              onSetCv(parsed);
+              setRawText(null);
+              toast.success(t("t_json_ok"));
+            } catch { setRawError(true); }
+          }}>{lang === "es" ? "Aplicar cambios del JSON" : "Apply JSON changes"}</Button>
+          {rawDirty && <Button className="ml-2 mt-2" variant="ghost" onClick={() => { setRawText(null); setRawError(false); }}>{lang === "es" ? "Descartar edición del JSON" : "Discard JSON edits"}</Button>}
+          {rawDirty && <p className="mt-1 text-xs text-muted-foreground">{lang === "es" ? "Aplica el JSON antes de guardar el perfil." : "Apply the JSON before saving your profile."}</p>}
         </details>
 
         <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={onBack}>
+          <Button variant="ghost" onClick={onBack} disabled={rawDirty}>
             {t("back")}
           </Button>
-          <Button variant="solid" onClick={onSave} disabled={busy === "complete"}>
+          <Button variant="solid" onClick={onSave} disabled={busy === "complete" || rawDirty}>
             {busy === "complete" ? t("saving") : t("save")}
           </Button>
         </div>
@@ -928,6 +1051,7 @@ function AiModeOption({
     <button
       type="button"
       disabled={disabled}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         "rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",

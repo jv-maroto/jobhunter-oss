@@ -16,11 +16,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _ROLES_SYSTEM = """Eres un orientador laboral. A partir del PERFIL en JSON (experiencia,
-skills, formacion) propones entre 1 y 4 ROLES de trabajo realistas para buscar empleo, en
+skills, formacion) propones entre 1 y 8 ROLES de trabajo realistas para buscar empleo, en
 el idioma del perfil. Para cada rol da:
 - "label": titulo corto y profesional (p.ej. "Backend Developer", "DevOps Engineer",
   "Sysadmin", "Data Engineer").
 - "why": una frase justificandolo con datos REALES del perfil.
+Considera ingenieria de datos, analytics engineering, BI, analitica, ciencia de datos,
+IA/ML o analisis cuantitativo solo cuando el perfil aporte evidencia relevante.
+Respeta preferencias de tipo de contrato y seniority. Distingue proyectos academicos
+de experiencia profesional; un rol sugerido no es un titulo que el usuario ya haya tenido.
 NO inventes experiencia que no exista. Prioriza roles para los que el perfil esta
 cualificado. Devuelve UNICAMENTE este JSON: {"roles": [{"label": "...", "why": "..."}]}"""
 
@@ -90,8 +94,13 @@ def _heuristic_roles(cv: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def suggest_roles(cv: dict[str, Any] | None) -> list[dict[str, str]]:
-    """Devuelve 1-4 roles sugeridos como [{id, label, why}]."""
     cv = cv or {}
+    selected = (cv.get("search_preferences") or {}).get("roles") or []
+    if selected:
+        labels = list(dict.fromkeys(str(role).strip() for role in selected if str(role).strip()))
+        return [{"id": _slug(label), "label": label,
+                 "why": "Previously selected target role; not a claim of past employment."}
+                for label in labels]
     if not _ai_available():
         logger.info("suggest_roles: sin IA, usando heuristica")
         return _heuristic_roles(cv)
@@ -110,13 +119,15 @@ def suggest_roles(cv: dict[str, Any] | None) -> list[dict[str, str]]:
             ],
             "skills": cv.get("skills", {}),
             "education": cv.get("education", []),
+            "projects": cv.get("projects", []),
+            "search_preferences": cv.get("search_preferences", {}),
             "summary": cv.get("summary_es") or cv.get("summary_en") or "",
         }
         raw = complete(
             tier="generation",
             system=_ROLES_SYSTEM,
             user="PERFIL:\n" + json.dumps(compact, ensure_ascii=False),
-            max_tokens=600,
+            max_tokens=1000,
             temperature=0.4,
             json_mode=True,
         )
@@ -134,7 +145,7 @@ def suggest_roles(cv: dict[str, Any] | None) -> list[dict[str, str]]:
             out.append(
                 {"id": _slug(label), "label": label, "why": str(r.get("why", "")).strip()}
             )
-            if len(out) >= 4:
+            if len(out) >= 8:
                 break
         if out:
             return out

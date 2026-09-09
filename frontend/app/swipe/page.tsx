@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Banknote,
@@ -10,7 +12,7 @@ import {
   FileText,
   Globe2,
   MapPin,
-  Star,
+  Clock3,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,8 +25,11 @@ import {
   usePrepareApplication,
   useUpdateJobStatus,
 } from "@/hooks/useJobs";
-import type { Job, JobTrack, SalaryBand } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { EMPLOYMENT_LABELS, JOB_TRACK_LABELS, type Job, type JobTrack, type SalaryBand } from "@/lib/types";
+import { cn, formatSalary, publicJobUrl } from "@/lib/utils";
+import { TrackFilter } from "@/components/jobs/TrackFilter";
+import { ScoreBadge } from "@/components/jobs/ScoreBadge";
+import { useLang } from "@/lib/i18n";
 
 const BAND_LABEL: Record<SalaryBand, string> = {
   high: "🤑 alto",
@@ -39,20 +44,13 @@ const BAND_COLOR: Record<SalaryBand, string> = {
   unknown: "bg-amber-500/10 text-amber-300/70 border-amber-500/30",
 };
 
-function formatSalary(j: Job): string {
-  if (!j.salary_min && !j.salary_max) return "Sin rango";
-  const cur = j.currency || "EUR";
-  const sym = cur === "USD" ? "$" : cur === "GBP" ? "£" : "€";
-  const fmt = (n?: number) => (n ? `${Math.round(n / 1000)}k` : "?");
-  if (j.salary_min && j.salary_max) return `${sym}${fmt(j.salary_min)}–${fmt(j.salary_max)}`;
-  return `${sym}${fmt(j.salary_max ?? j.salary_min)}`;
-}
-
 export default function SwipePage() {
-  const [track, setTrack] = React.useState<JobTrack>("dev");
+  const router = useRouter();
+  const { t } = useLang();
+  const [track, setTrack] = React.useState<JobTrack | undefined>(undefined);
   const [remoteOnly, setRemoteOnly] = React.useState(false);
   const [minBand, setMinBand] = React.useState<SalaryBand | undefined>(undefined);
-  const [index, setIndex] = React.useState(0);
+  const [handled, setHandled] = React.useState<number[]>([]);
   const [direction, setDirection] = React.useState<-1 | 0 | 1>(0);
 
   const query = useSwipeJobs({
@@ -64,71 +62,61 @@ export default function SwipePage() {
   const updateStatus = useUpdateJobStatus();
 
   React.useEffect(() => {
-    setIndex(0);
+    setHandled([]);
   }, [track, remoteOnly, minBand]);
 
-  const jobs = query.data ?? [];
-  const current = jobs[index];
-  const next = jobs[index + 1];
+  const jobs = (query.data ?? []).filter((job) => !handled.includes(job.id));
+  const current = jobs[0];
+  const next = jobs[1];
+  const pending = prepare.isPending || updateStatus.isPending;
 
   const advance = (dir: -1 | 1) => {
     setDirection(dir);
-    setIndex((i) => i + 1);
+    if (current) setHandled((ids) => [...ids, current.id]);
   };
 
   const onSkip = async () => {
-    if (!current) return;
+    if (!current || pending) return;
     try {
       await updateStatus.mutateAsync({
         id: current.id,
         status: "rejected",
         notes: "Skipped from swipe",
       });
+      advance(-1);
     } catch {
-      /* noop */
+      toast.error("No se pudo descartar. Inténtalo de nuevo.");
     }
-    advance(-1);
   };
 
-  const onSave = () => {
-    if (!current) return;
-    toast.success("Guardado", { icon: <Star className="h-4 w-4" /> });
+  const onLater = () => {
+    if (!current || pending) return;
     advance(1);
   };
 
   const onPrepare = async () => {
-    if (!current) return;
+    if (!current || pending) return;
     try {
-      toast.loading("Generando CV + cover…", { id: `prep-${current.id}` });
-      await prepare.mutateAsync(current.id);
-      toast.success("CV + cover listos", {
+      toast.loading(t("preparing_application"), { id: `prep-${current.id}` });
+      const result = await prepare.mutateAsync(current.id);
+      toast.success(t("application_documents_ready"), {
         id: `prep-${current.id}`,
         icon: <FileText className="h-4 w-4" />,
       });
+      router.push(`/applications/${result.application_id}`);
     } catch (e) {
-      toast.error("Fallo al preparar", {
+      toast.error(t("prepare_application_failed"), {
         id: `prep-${current.id}`,
         description: String(e).slice(0, 120),
       });
     }
-    advance(1);
   };
 
   return (
     <div className="space-y-5">
       {/* Track tabs */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="inline-flex rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))]/60 p-1">
-          <TabButton active={track === "dev"} onClick={() => setTrack("dev")}>
-            Dev / Full-Stack · AI
-          </TabButton>
-          <TabButton
-            active={track === "sysadmin"}
-            onClick={() => setTrack("sysadmin")}
-          >
-            SysAdmin · DevOps
-          </TabButton>
-        </div>
+        <TrackFilter value={track} onChange={setTrack} />
 
         <div className="flex items-center gap-2 flex-wrap">
           <Toggle active={remoteOnly} onClick={() => setRemoteOnly((v) => !v)}>
@@ -137,7 +125,7 @@ export default function SwipePage() {
           <BandFilter value={minBand} onChange={setMinBand} />
           <span className="text-[11px] text-muted-foreground mono">
             {jobs.length > 0
-              ? `${Math.min(index + 1, jobs.length)} / ${jobs.length}`
+              ? `${jobs.length} pendientes`
               : "—"}
           </span>
         </div>
@@ -147,7 +135,7 @@ export default function SwipePage() {
       <div className="relative mx-auto max-w-2xl h-[520px]">
         {query.isLoading && <Skeleton className="absolute inset-0 rounded-2xl" />}
 
-        {!query.isLoading && jobs.length === 0 && (
+        {!query.isLoading && !query.error && jobs.length === 0 && (
           <div className="absolute inset-0 grid place-items-center text-center text-muted-foreground">
             <div>
               <p className="text-sm">No quedan ofertas pendientes en este filtro.</p>
@@ -157,6 +145,8 @@ export default function SwipePage() {
             </div>
           </div>
         )}
+
+        {query.error && <div role="alert" className="absolute inset-0 grid place-items-center text-sm"><div>No se pudieron cargar las ofertas. <button className="underline" onClick={() => void query.refetch()}>Reintentar</button></div></div>}
 
         {/* Card debajo (peek) */}
         {next && (
@@ -187,26 +177,26 @@ export default function SwipePage() {
 
       {/* Action buttons */}
       {current && (
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
           <ActionBtn
             onClick={onSkip}
             color="rose"
             label="Skip"
-            kbd="←"
+            disabled={pending}
             icon={<X className="h-5 w-5" />}
           />
           <ActionBtn
-            onClick={onSave}
+            onClick={onLater}
             color="amber"
-            label="Save"
-            kbd="↑"
-            icon={<Star className="h-5 w-5" />}
+            label="Más tarde"
+            disabled={pending}
+            icon={<Clock3 className="h-5 w-5" />}
           />
           <ActionBtn
             onClick={onPrepare}
             color="emerald"
-            label="Preparar"
-            kbd="→"
+            label={t("prepare_application")}
+            disabled={pending}
             icon={<CheckCircle2 className="h-5 w-5" />}
           />
         </div>
@@ -217,6 +207,7 @@ export default function SwipePage() {
 
 function SwipeCard({ job }: { job: Job }) {
   const band = job.predicted_salary_band;
+  const postingUrl = publicJobUrl(job.source_url);
   return (
     <Card
       variant="glass"
@@ -232,22 +223,21 @@ function SwipeCard({ job }: { job: Job }) {
               className={cn("border", BAND_COLOR[band])}
             >
               <Banknote className="h-3 w-3 mr-1" />
-              {formatSalary(job)} · {BAND_LABEL[band]}
+              {formatSalary(job.salary_min, job.salary_max, job.currency, job.salary_period)} · {BAND_LABEL[band]}
             </Badge>
             {job.remote && (
               <Badge variant="outline" size="sm" className="border-cyan-500/40 text-cyan-300">
                 <Globe2 className="h-3 w-3 mr-1" /> Remote
               </Badge>
             )}
-            <Badge variant="mono" size="sm">
-              score {Math.round(job.match_score)}
-            </Badge>
+            <ScoreBadge score={Math.round(job.match_score)} reason={job.rejection_reason} size="sm" />
             <Badge variant="secondary" size="sm">
               {job.source}
             </Badge>
           </div>
+          <p className="mb-1 text-xs text-muted-foreground">{JOB_TRACK_LABELS[job.track] ?? job.track} · {job.employment_type ? EMPLOYMENT_LABELS[job.employment_type] : "Contract not stated"}</p>
           <h2 className="text-xl font-semibold leading-tight line-clamp-2">
-            {job.title}
+            <Link href={`/jobs/${job.id}`} className="hover:underline">{job.title}</Link>
           </h2>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -260,14 +250,14 @@ function SwipeCard({ job }: { job: Job }) {
                 {job.location}
               </span>
             )}
-            <a
-              href={job.source_url}
+            {postingUrl && <a
+              href={postingUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[hsl(var(--accent-1))] hover:underline"
             >
               Open <ExternalLink className="h-3 w-3" />
-            </a>
+            </a>}
           </div>
         </div>
       </div>
@@ -302,30 +292,6 @@ function SwipeCard({ job }: { job: Job }) {
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "px-4 py-2 text-xs font-medium rounded-lg transition-colors",
-        active
-          ? "bg-[hsl(var(--accent-1))]/15 text-[hsl(var(--accent-1))] border border-[hsl(var(--accent-1))]/40"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
 function Toggle({
   active,
   onClick,
@@ -337,6 +303,8 @@ function Toggle({
 }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] mono transition-colors",
@@ -367,6 +335,8 @@ function BandFilter({
       {opts.map((o) => (
         <button
           key={o.label}
+          type="button"
+          aria-pressed={value === o.v}
           onClick={() => onChange(o.v)}
           className={cn(
             "px-2.5 py-1 text-[10px] mono rounded-md transition-colors",
@@ -392,28 +362,25 @@ function ActionBtn({
   onClick,
   color,
   label,
-  kbd,
+  disabled,
   icon,
 }: {
   onClick: () => void;
   color: keyof typeof COLOR_MAP;
   label: string;
-  kbd?: string;
+  disabled?: boolean;
   icon: React.ReactNode;
 }) {
   return (
     <Button
       onClick={onClick}
+      disabled={disabled}
       variant="outline"
-      className={cn("h-14 px-6 gap-2 border-2 transition-all", COLOR_MAP[color])}
+      className={cn("h-14 px-3 sm:px-6 gap-2 border-2 transition-all", COLOR_MAP[color])}
     >
       {icon}
       <span className="text-sm font-medium">{label}</span>
-      {kbd && (
-        <span className="text-[10px] opacity-60 mono ml-1 border rounded px-1 py-0.5">
-          {kbd}
-        </span>
-      )}
+
     </Button>
   );
 }

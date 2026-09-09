@@ -12,6 +12,11 @@ import { useAiSettings, useTestAiSettings, useUpdateAiSettings } from "@/hooks/u
 
 const MODES: { id: AiMode; label: string; desc: string }[] = [
   {
+    id: "codex",
+    label: "OpenAI Codex (cuenta ChatGPT)",
+    desc: "Usa tu sesión de Codex CLI. Consume tu cuota de Codex; no requiere clave API.",
+  },
+  {
     id: "auto",
     label: "Automático (recomendado)",
     desc: "Usa la nube si hay clave, si no Ollama local. Degrada solo.",
@@ -173,6 +178,14 @@ export default function AiSettingsPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {mode === "codex" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {data.codex_available
+            ? `ChatGPT conectado · ${data.codex_model}. Los datos de cada tarea se envían a OpenAI. Guarda y pulsa Probar para verificar.`
+            : "Codex no está conectado con ChatGPT. Ejecuta codex login en la máquina del backend y recarga esta página."}
+        </p>
       )}
 
       <div className="flex items-center justify-between">

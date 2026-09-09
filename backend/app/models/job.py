@@ -40,11 +40,12 @@ class Job(Base):
     salary_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     salary_max: Mapped[float | None] = mapped_column(Float, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    salary_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    employment_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=list)
 
-    # Classification (dev vs sysadmin track) + salary heuristic
     track: Mapped[str] = mapped_column(String(16), default="dev", index=True)
     predicted_salary_band: Mapped[str] = mapped_column(
         String(16), default="unknown", index=True
@@ -55,6 +56,8 @@ class Job(Base):
     salary_in_range: Mapped[bool | None] = mapped_column(default=None, nullable=True)
     remote_compatible: Mapped[bool | None] = mapped_column(default=None, nullable=True)
     location_compatible: Mapped[bool | None] = mapped_column(default=None, nullable=True)
+    employment_compatible: Mapped[bool | None] = mapped_column(default=None, nullable=True)
+    seniority_compatible: Mapped[bool | None] = mapped_column(default=None, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     key_matches: Mapped[list[str] | None] = mapped_column(JSON, default=list)
     missing_skills: Mapped[list[str] | None] = mapped_column(JSON, default=list)
@@ -66,6 +69,9 @@ class Job(Base):
     cv_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     cover_letter_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_action_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    saved_by_user: Mapped[bool] = mapped_column(default=False)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

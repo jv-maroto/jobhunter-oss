@@ -29,7 +29,7 @@ COUNTRY_MAP: dict[str, dict[str, str]] = {
     "FI": {"indeed": "Finland", "location": "Finland"},
 }
 
-# Region EEA / "toda Europa" para el preset all_europe.
+# Geographic Europe preset; this is not an EU/EEA work-authorization list.
 EU_COUNTRIES: list[str] = [
     "ES", "DE", "FR", "SE", "GB", "IE", "NL", "IT", "PT",
     "BE", "AT", "CH", "PL", "DK", "NO", "FI",
@@ -38,6 +38,7 @@ EU_COUNTRIES: list[str] = [
 REGION_PRESETS: dict[str, list[str]] = {
     "all_europe": EU_COUNTRIES,
     "only_spain": ["ES"],
+    "only_switzerland": ["CH"],
     "remote_worldwide": ["REMOTE"],
 }
 

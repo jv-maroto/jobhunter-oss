@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 AI_STORE_FILE = "ai.json"
 PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini")
-VALID_MODES: tuple[str, ...] = ("auto", "cloud", "local", "off")
+VALID_MODES: tuple[str, ...] = ("auto", "cloud", "local", "codex", "off")
 
 
 def _path():
@@ -178,7 +178,7 @@ def resolve_mode() -> str:
     """
     state = get_state()
     mode = state.get("ai_mode", "auto")
-    if mode in ("cloud", "local", "off"):
+    if mode in ("cloud", "local", "codex", "off"):
         return mode
     # auto
     if has_key(state.get("ai_cloud_provider", "anthropic")):
@@ -191,6 +191,8 @@ def resolve_mode() -> str:
 def active_label() -> str:
     """Etiqueta del LLM activo: el provider cloud elegido, 'ollama' u 'off'."""
     mode = resolve_mode()
+    if mode == "codex":
+        return "codex"
     if mode == "cloud":
         return get_state().get("ai_cloud_provider", "anthropic")
     if mode == "local":

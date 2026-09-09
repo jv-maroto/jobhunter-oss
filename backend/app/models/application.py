@@ -30,5 +30,8 @@ class Application(Base):
     apply_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     screening_answers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cv_source_filename: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    cv_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cv_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     job = relationship("Job", back_populates="applications")

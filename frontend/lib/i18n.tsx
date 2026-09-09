@@ -7,6 +7,10 @@ export type Lang = "es" | "en";
 type Entry = { es: string; en: string };
 
 const DICT: Record<string, Entry> = {
+  prepare_application: { es: "Preparar", en: "Prepare" },
+  preparing_application: { es: "Preparando candidatura…", en: "Preparing application…" },
+  application_documents_ready: { es: "Documentos de candidatura listos", en: "Application documents ready" },
+  prepare_application_failed: { es: "No se pudo preparar la candidatura", en: "Failed to prepare application" },
   // stepper
   step_welcome: { es: "Bienvenida", en: "Welcome" },
   step_github: { es: "GitHub", en: "GitHub" },
@@ -19,6 +23,15 @@ const DICT: Record<string, Entry> = {
   step_done: { es: "Listo", en: "Done" },
   // paso IA
   ai_title: { es: "¿Qué IA quieres usar?", en: "Which AI do you want to use?" },
+  ai_codex: { es: "OpenAI Codex (cuenta ChatGPT)", en: "OpenAI Codex (ChatGPT account)" },
+  ai_codex_desc: {
+    es: "Usa tu sesión de Codex CLI, sin clave API. Consume tu cuota de Codex y envía los datos de cada tarea a OpenAI.",
+    en: "Uses your Codex CLI login, without an API key. Uses your Codex allowance and sends each task's data to OpenAI.",
+  },
+  ai_codex_unavailable: {
+    es: "Ejecuta codex login en la máquina del backend con tu cuenta ChatGPT y recarga esta página.",
+    en: "Run codex login on the backend machine with your ChatGPT account, then reload this page.",
+  },
   ai_desc: {
     es: "La IA analiza tu CV, puntúa ofertas y redacta materiales. Elige una; puedes cambiarla luego en Ajustes.",
     en: "AI analyzes your CV, scores jobs and drafts materials. Pick one; you can change it later in Settings.",
@@ -101,6 +114,8 @@ const DICT: Record<string, Entry> = {
     es: "Activamos las plataformas relevantes a los países que elijas.",
     en: "We enable the platforms relevant to the countries you pick.",
   },
+  rg_preset_ch: { es: "Solo Suiza", en: "Switzerland only" },
+  c_CH: { es: "Suiza", en: "Switzerland" },
   rg_preset_es: { es: "Solo España", en: "Spain only" },
   rg_preset_eu: { es: "Toda Europa", en: "All Europe" },
   rg_preset_remote: { es: "Remoto (worldwide)", en: "Remote (worldwide)" },

@@ -1,9 +1,10 @@
 import { ChevronRight, ExternalLink, MapPin } from "lucide-react";
-import type { Job } from "@/lib/types";
+import Link from "next/link";
+import { EMPLOYMENT_LABELS, JOB_TRACK_LABELS, type Job } from "@/lib/types";
 import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { formatSalary } from "@/lib/utils";
+import { formatSalary, publicJobUrl } from "@/lib/utils";
 import { JobActionsMenu } from "@/components/jobs/JobActionsMenu";
 
 export function JobCard({
@@ -22,6 +23,7 @@ export function JobCard({
   /** Show the "•••" menu with move-to-any-status + delete. Default: true. */
   showActions?: boolean;
 }) {
+  const postingUrl = publicJobUrl(job.source_url);
   return (
     <Card
       variant="solid"
@@ -31,21 +33,26 @@ export function JobCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <div
-              className="text-sm font-medium truncate text-foreground min-w-0 flex-1"
+            <Link
+              href={`/jobs/${job.id}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="text-sm font-medium truncate text-foreground min-w-0 flex-1 hover:underline"
               title={job.title ?? ""}
             >
               {job.title ?? "Untitled"}
-            </div>
-            <a
-              href={job.source_url}
+            </Link>
+            {postingUrl && <a
+              href={postingUrl}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label={`Open original posting for ${job.title}`}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
               className="text-muted-foreground hover:text-[hsl(var(--accent-1))] shrink-0"
             >
               <ExternalLink className="h-3 w-3" />
-            </a>
+            </a>}
           </div>
           <div
             className="text-xs text-muted-foreground truncate"
@@ -53,6 +60,7 @@ export function JobCard({
           >
             {job.company ?? "—"}
           </div>
+          {!compact && <p className="text-[10px] text-muted-foreground">{JOB_TRACK_LABELS[job.track] ?? job.track} · {job.employment_type ? EMPLOYMENT_LABELS[job.employment_type] : "Contract not stated"}</p>}
           {!compact && (
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground/80">
               <span className="inline-flex items-center gap-1 truncate">
@@ -62,7 +70,7 @@ export function JobCard({
                 </span>
               </span>
               <span className="mono whitespace-nowrap">
-                {formatSalary(job.salary_min, job.salary_max, job.currency)}
+                {formatSalary(job.salary_min, job.salary_max, job.currency, job.salary_period)}
               </span>
             </div>
           )}
@@ -85,7 +93,7 @@ export function JobCard({
             )}
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <ScoreBadge score={job.match_score ?? 0} size="md" />
+          <ScoreBadge score={job.match_score ?? 0} reason={job.rejection_reason} size="md" />
           <div className="flex items-center gap-1">
             {showActions && <JobActionsMenu job={job} />}
             {onAdvance && (

@@ -90,6 +90,16 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
+    ensure_columns("jobs", {
+        "salary_period": "VARCHAR(16)",
+        "employment_type": "VARCHAR(16)",
+        "employment_compatible": "BOOLEAN",
+        "seniority_compatible": "BOOLEAN",
+        "next_action": "TEXT",
+        "next_action_at": "DATETIME",
+        "saved_by_user": "BOOLEAN NOT NULL DEFAULT 0",
+    })
+
     # Columnas anadidas despues de la v1 del esquema (instalaciones existentes).
     ensure_columns(
         "applications",
@@ -98,5 +108,8 @@ def init_db() -> None:
             "apply_url": "VARCHAR(1024)",
             "screening_answers": "JSON",
             "submitted_at": "DATETIME",
+            "cv_source_filename": "VARCHAR(256)",
+            "cv_sha256": "VARCHAR(64)",
+            "cv_mode": "VARCHAR(16)",
         },
     )

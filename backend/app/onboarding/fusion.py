@@ -17,7 +17,7 @@ from app.ai.profile_extractor import generate_summaries
 logger = logging.getLogger(__name__)
 
 # Menor numero = mayor prioridad.
-_SOURCE_PRIORITY = {"manual": 0, "cv": 1, "linkedin": 2, "github": 3}
+_SOURCE_PRIORITY = {"manual": 0, "saved": 1, "cv": 2, "linkedin": 3, "github": 4}
 
 
 def _rank(src: str) -> int:
@@ -43,6 +43,8 @@ def fuse(fragments: dict[str, dict], base: dict[str, Any] | None = None) -> dict
     """Devuelve {cv_master, field_sources, conflicts, llm_used}."""
     base = base or {}
     frags = list(fragments.values())
+    if base and "_README" not in base:
+        frags.append({**base, "source": "saved"})
     frags_by_priority = sorted(frags, key=lambda f: _rank(f.get("source", "")))
 
     field_sources: dict[str, str] = {}
@@ -83,13 +85,25 @@ def fuse(fragments: dict[str, dict], base: dict[str, Any] | None = None) -> dict
 
     # ---- experience (dedup por empresa+rol, mayor prioridad gana) ----
     experience: list[dict] = []
-    exp_seen: set[tuple[str, str]] = set()
+    exp_seen: dict[tuple[str, str], int] = {}
     for frag in frags_by_priority:
         for e in frag.get("experience") or []:
             key = (_norm(e.get("company")), _norm(e.get("role")))
-            if key == ("", "") or key in exp_seen:
+            if key == ("", ""):
                 continue
-            exp_seen.add(key)
+            if key in exp_seen:
+                index = exp_seen[key]
+                kept = experience[index]
+                for field, value in e.items():
+                    if value and kept.get(field) and kept[field] != value:
+                        conflicts.append({"field": f"experience.{index}.{field}",
+                                          "kept": kept[field], "other": value,
+                                          "other_source": frag.get("source", "")})
+                    elif value and not kept.get(field):
+                        kept[field] = value
+                continue
+            exp_seen[key] = len(experience)
+            e = dict(e)
             experience.append(e)
     if experience:
         field_sources["experience"] = "merged"
@@ -107,7 +121,7 @@ def fuse(fragments: dict[str, dict], base: dict[str, Any] | None = None) -> dict
                 out.append(item)
         return out
 
-    education = _union("education", lambda x: _norm(x.get("institution")) + "|" + _norm(x.get("degree")))
+    education = _union("education", lambda x: _norm(x.get("institution") or x.get("school")) + "|" + _norm(x.get("degree")))
     certifications = _union("certifications", lambda x: _norm(x.get("name")))
     languages = _union("languages", lambda x: _norm(x.get("name")))
 
@@ -138,6 +152,7 @@ def fuse(fragments: dict[str, dict], base: dict[str, Any] | None = None) -> dict
 
     # ---- ensamblado, preservando search_preferences de la base ----
     cv_master: dict[str, Any] = {
+        **base,
         "personal": personal,
         "summary_es": summary_es,
         "summary_en": summary_en,
@@ -147,7 +162,7 @@ def fuse(fragments: dict[str, dict], base: dict[str, Any] | None = None) -> dict
         "certifications": certifications,
         "skills": skills,
         "projects": projects,
-        "projects_highlight": projects[:3],
+        "projects_highlight": base.get("projects_highlight") or projects[:3],
         "narratives": base.get("narratives", {}) or {},
         "search_preferences": base.get("search_preferences", {}) or {},
     }

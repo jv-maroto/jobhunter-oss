@@ -38,12 +38,12 @@ const REASONS: Array<{
   },
   {
     id: "salary_too_low",
-    label: "Salary too low (under 28k€)",
+    label: "Salary below my target",
     destination: "rejected",
   },
   {
     id: "wrong_location",
-    label: "Wrong location (no remote, not EU)",
+    label: "Location or remote eligibility does not fit",
     destination: "rejected",
   },
   {
@@ -53,7 +53,7 @@ const REASONS: Array<{
   },
   {
     id: "seniority_too_high",
-    label: "Requires 5+ years (overqualified search)",
+    label: "Required seniority exceeds my experience",
     destination: "rejected",
   },
   {

@@ -3,31 +3,45 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 import unicodedata
-from datetime import datetime
 from pathlib import Path
+from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.ai.cover_letter import generate_cover_letter
 from app.ai.cv_generator import _detect_language, generate_cv
+from app.apply.state import TERMINAL_STATUSES, UNSET, transition_job
 from app.config import settings
 from app.db import get_db
 from app.models.application import Application
 from app.models.job import Job
 from app.rate_limit import limiter
 from app.schemas.job import (
+    JobImport,
+    JobImportOut,
     JobOut,
     JobPatch,
     JobsListOut,
+    JobTrack,
     PrepareApplicationOut,
+    canonical_job_url,
 )
-from app.services import load_cv_master, scrape_and_ingest
+from app.services import (
+    current_job_metadata,
+    discovery_job,
+    load_cv_master,
+    scrape_and_ingest,
+    scrape_runtime_state,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -51,60 +65,63 @@ def list_jobs(
     status: str | None = Query(default=None),
     min_score: float | None = Query(default=None, ge=0, le=100),
     source: str | None = Query(default=None),
-    track: str | None = Query(default=None, description="dev | sysadmin"),
+    track: JobTrack | Literal["all", ""] | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> JobsListOut:
-    stmt = select(Job).order_by(desc(Job.match_score), desc(Job.created_at))
+    stmt = select(Job).order_by(desc(Job.created_at))
     if status:
         stmt = stmt.where(Job.status == status)
-    if min_score is not None:
-        stmt = stmt.where(Job.match_score >= min_score)
     if source:
         stmt = stmt.where(Job.source == source)
-    if track:
-        stmt = stmt.where(Job.track == track)
+    cv = load_cv_master()
+    # ponytail: local-sized job collection; move metadata predicates into indexed columns if this grows large.
+    items = []
+    for job in db.scalars(stmt):
+        if job.source == "manual" or job.saved_by_user:
+            item = JobOut.model_validate(job).model_copy(update=current_job_metadata(job, cv, rescore=True))
+        elif job.status != "detected":
+            item = JobOut.model_validate(job)
+        else:
+            item = discovery_job(job, cv)
+        if item is None or (track and track != "all" and item.track != track):
+            continue
+        if min_score is not None and item.match_score < min_score:
+            continue
+        items.append(item)
+    items.sort(key=lambda item: item.match_score, reverse=True)
+    return JobsListOut(total=len(items), items=items[offset:offset + limit])
 
-    total = db.execute(
-        select(func.count()).select_from(stmt.order_by(None).subquery())
-    ).scalar() or 0
-    items = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
-    return JobsListOut(total=int(total), items=[JobOut.model_validate(j) for j in items])
 
 
 @router.get("/swipe", response_model=list[JobOut])
 def swipe_jobs(
-    track: str = Query(default="dev", description="dev | sysadmin"),
+    track: JobTrack | Literal["all", ""] | None = Query(default=None),
     remote_only: bool = Query(default=False),
     min_band: str | None = Query(default=None, description="high | mid → filter por banda mínima"),
     limit: int = Query(default=40, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> list[JobOut]:
-    """Cola de ofertas pendientes de decidir, ordenada por mejor sueldo primero."""
     band_rank = {"high": 4, "mid": 3, "unknown": 2, "low": 1}
     min_rank = band_rank.get(min_band or "", 0)
-
-    stmt = (
-        select(Job)
-        .where(Job.track == track)
-        .where(Job.status == "detected")
-    )
+    stmt = select(Job).where(Job.status == "detected").order_by(desc(Job.created_at))
     if remote_only:
         stmt = stmt.where(Job.remote.is_(True))
+    cv = load_cv_master()
+    items = []
+    for job in db.scalars(stmt):
+        item = discovery_job(job, cv)
+        if item is None or item.match_score < 30:
+            continue
+        if track and track != "all" and item.track != track:
+            continue
+        if min_rank and band_rank.get(item.predicted_salary_band, 0) < min_rank:
+            continue
+        items.append(item)
+    items.sort(key=lambda item: (-item.match_score, -band_rank.get(item.predicted_salary_band, 0)))
+    return items[:limit]
 
-    items = db.execute(stmt).scalars().all()
-    if min_rank:
-        items = [j for j in items if band_rank.get(j.predicted_salary_band, 0) >= min_rank]
-
-    # Sort: explicit salary first (desc), then by band, then by match_score
-    def sort_key(j: Job):
-        sal = j.salary_max or j.salary_min or 0
-        rank = band_rank.get(j.predicted_salary_band, 0)
-        return (-sal, -rank, -j.match_score)
-
-    items.sort(key=sort_key)
-    return [JobOut.model_validate(j) for j in items[:limit]]
 
 
 # ---------------------------------------------------------------------------
@@ -112,36 +129,16 @@ def swipe_jobs(
 # so the literal paths take precedence over the int catch-all.
 # ---------------------------------------------------------------------------
 
-_SCRAPE_STATE: dict[str, object] = {
-    "running": False,
-    "started_at": None,
-    "finished_at": None,
-    "scraped": 0,
-    "inserted": 0,
-    "duplicates": 0,
-    "error": None,
-}
-
-
 async def _run_scrape_background() -> None:
     from app.db import SessionLocal
-    _SCRAPE_STATE["running"] = True
-    _SCRAPE_STATE["started_at"] = datetime.utcnow().isoformat()
-    _SCRAPE_STATE["finished_at"] = None
-    _SCRAPE_STATE["error"] = None
+
     db = SessionLocal()
     try:
-        result = await scrape_and_ingest(db)
-        _SCRAPE_STATE["scraped"] = result.get("scraped", 0)
-        _SCRAPE_STATE["inserted"] = result.get("inserted", 0)
-        _SCRAPE_STATE["duplicates"] = result.get("duplicates", 0)
-    except Exception as exc:  # noqa: BLE001
-        _SCRAPE_STATE["error"] = str(exc)[:200]
+        await scrape_and_ingest(db)
+    except Exception as exc:
         logger.exception("scrape background failed: %s", exc)
     finally:
         db.close()
-        _SCRAPE_STATE["running"] = False
-        _SCRAPE_STATE["finished_at"] = datetime.utcnow().isoformat()
 
 
 @router.post("/scrape-now", tags=["jobs"])
@@ -154,15 +151,65 @@ async def scrape_now(request: Request, background_tasks: BackgroundTasks) -> dic
             status_code=409,
             detail="Completa el onboarding antes de buscar ofertas (sin perfil no hay queries).",
         )
-    if _SCRAPE_STATE.get("running"):
-        return {"status": "already_running", **_SCRAPE_STATE}
+    state = scrape_runtime_state()
+    if state["running"]:
+        return {"status": "already_running", **state}
     background_tasks.add_task(_run_scrape_background)
     return {"status": "started"}
 
 
 @router.get("/scrape-status", tags=["jobs"])
 def scrape_status() -> dict:
-    return dict(_SCRAPE_STATE)
+    return scrape_runtime_state()
+
+
+@router.post("/import", response_model=JobImportOut)
+def import_job(payload: JobImport, db: Session = Depends(get_db)) -> JobImportOut:
+    def normalized_content(title: str, company: str, location: str, description: str) -> str:
+        return json.dumps([" ".join((value or "").split()).casefold()
+                           for value in (title, company, location, description)], ensure_ascii=False)
+
+    content = normalized_content(payload.title, payload.company, payload.location, payload.description)
+    identity = payload.url or content
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    existing_id = None
+    for row in db.execute(select(Job.id, Job.source_url, Job.hash, Job.title, Job.company,
+                                 Job.location, Job.description)):
+        if row.hash == digest or normalized_content(row.title, row.company, row.location, row.description) == content:
+            existing_id = row.id
+            break
+        if payload.url and row.source_url:
+            try:
+                if canonical_job_url(row.source_url) == payload.url:
+                    existing_id = row.id
+                    break
+            except (ValueError, UnicodeError):
+                continue
+    cv = load_cv_master()
+    if existing_id is not None:
+        job = db.get(Job, existing_id)
+        job.saved_by_user = True
+        if not job.source_url and payload.url:
+            job.source_url = payload.url
+        if not (job.description or "").strip():
+            job.description = payload.description
+        db.commit()
+        db.refresh(job)
+        return JobImportOut(job=JobOut.model_validate(job).model_copy(
+            update=current_job_metadata(job, cv, rescore=True)), created=False)
+
+    job = Job(source="manual", source_url=payload.url or "", hash=digest,
+              title=payload.title, company=payload.company, description=payload.description,
+              location=payload.location, remote=payload.remote, saved_by_user=True)
+    db.add(job)
+    db.flush()
+    metadata = current_job_metadata(job, cv, rescore=True)
+    for field, value in metadata.items():
+        if field in Job.__table__.columns:
+            setattr(job, field, value)
+    db.commit()
+    db.refresh(job)
+    return JobImportOut(job=JobOut.model_validate(job).model_copy(update=metadata), created=True)
 
 
 @router.get("/{job_id}", response_model=JobOut)
@@ -170,7 +217,9 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> JobOut:
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return JobOut.model_validate(job)
+    result = JobOut.model_validate(job)
+    metadata = current_job_metadata(job, load_cv_master(), rescore=job.source == "manual" or job.saved_by_user)
+    return result.model_copy(update=metadata)
 
 
 @router.patch("/{job_id}", response_model=JobOut)
@@ -178,14 +227,27 @@ def patch_job(job_id: int, patch: JobPatch, db: Session = Depends(get_db)) -> Jo
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if patch.status:
-        job.status = patch.status
-        if patch.status == "applied" and not job.applied_at:
-            job.applied_at = datetime.utcnow()
-    if patch.notes is not None:
+    fields = patch.model_fields_set
+    next_action = patch.next_action if "next_action" in fields else job.next_action
+    next_action = next_action.strip() or None if next_action else None
+    next_action_at = patch.next_action_at if "next_action_at" in fields else job.next_action_at
+    if "next_action" in fields and next_action is None:
+        next_action_at = None
+    if (patch.status or job.status) in TERMINAL_STATUSES:
+        next_action = next_action_at = None
+    if next_action_at is not None and not next_action:
+        raise HTTPException(status_code=422, detail="A follow-up date requires a next action")
+    if patch.status or "applied_at" in fields:
+        try:
+            transition_job(db, job, patch.status or job.status,
+                           application_id=patch.application_id,
+                           applied_at=patch.applied_at if "applied_at" in fields else UNSET)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if "notes" in fields:
         job.notes = patch.notes
-    if patch.applied_at is not None:
-        job.applied_at = patch.applied_at
+    job.next_action = next_action
+    job.next_action_at = next_action_at
     db.commit()
     db.refresh(job)
     return JobOut.model_validate(job)
@@ -197,7 +259,7 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
     Removes cascade-safe:
       - Application rows for this job
-      - The application folder in data/applications/{slug}/
+      - The application folder in data/applications/job-{id}/
       - The corresponding cvs-out subfolders (best-effort — filenames encode
         job id, so we glob for any that end in `_job{id}` under any date dir).
     Does NOT touch the DB row for other tables that might reference this job.
@@ -208,7 +270,6 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    company = job.company or "unknown"
     app_rows = db.execute(
         select(Application).where(Application.job_id == job_id)
     ).scalars().all()
@@ -221,8 +282,8 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
 
     # Best-effort file cleanup — never fails the request
     try:
-        slug = _company_slug(company, job_id)
-        app_dir = settings.data_path / "applications" / slug
+        # Legacy company folders may contain other jobs' documents.
+        app_dir = settings.data_path / "applications" / f"job-{job_id}"
         if app_dir.exists():
             import shutil
             shutil.rmtree(app_dir, ignore_errors=True)
@@ -259,8 +320,9 @@ async def prepare_application(
     cv_master = load_cv_master()
     if not cv_master:
         raise HTTPException(status_code=500, detail="cv_master.json no disponible")
+    preparation_track = current_job_metadata(job, cv_master)["track"]
 
-    out_dir = settings.data_path / "applications" / _company_slug(job.company, job.id)
+    out_dir = settings.data_path / "applications" / f"job-{job.id}" / uuid4().hex
     out_dir.mkdir(parents=True, exist_ok=True)
 
     job_dict = {
@@ -269,37 +331,31 @@ async def prepare_application(
         "company": job.company,
         "location": job.location,
         "description": job.description,
+        "track": preparation_track,
+        "salary_min": job.salary_min,
+        "salary_max": job.salary_max,
+        "currency": job.currency,
+        "salary_period": job.salary_period,
+        "remote": job.remote,
+        "employment_type": job.employment_type,
     }
     hooks = list(job.personalization_hooks or [])
 
-    # Detect language synchronously (cheap) so CV + cover can run in parallel
     lang = _detect_language(job.description or job.title or "")
-
-    cv_task = asyncio.to_thread(generate_cv, cv_master, job_dict, out_dir, lang)
-    cover_task = asyncio.to_thread(
-        generate_cover_letter, cv_master, job_dict, hooks, out_dir, lang
-    )
-    # gather with return_exceptions so a typst failure in either half surfaces
-    # as an HTTP 500 with a safe message, instead of persisting an orphan
-    # cv_path/cover_letter_path pointing at a file that was never written.
-    # CVGenerationError messages are curated for users; generic Exception
-    # messages are logged server-side but only a short reference goes to the
-    # client (avoid leaking absolute paths, module names, secrets).
     from app.ai.cv_generator import CVGenerationError
-    results = await asyncio.gather(cv_task, cover_task, return_exceptions=True)
-    cv_result, cover_result = results
-    if isinstance(cv_result, CVGenerationError):
-        raise HTTPException(status_code=500, detail=f"CV generation failed: {cv_result}")
-    if isinstance(cv_result, Exception):
-        logger.exception("CV generation crashed for job %s", job_id)
-        raise HTTPException(status_code=500, detail="CV generation crashed. Check backend logs for details.")
-    if isinstance(cover_result, CVGenerationError):
-        raise HTTPException(status_code=500, detail=f"Cover letter generation failed: {cover_result}")
-    if isinstance(cover_result, Exception):
-        logger.exception("Cover letter generation crashed for job %s", job_id)
-        raise HTTPException(status_code=500, detail="Cover letter generation crashed. Check backend logs for details.")
-    (pdf_cv, typst_src, lang) = cv_result
-    (pdf_cover, cover_content) = cover_result
+
+    stage = "CV"
+    try:
+        pdf_cv, typst_src, lang = await asyncio.to_thread(generate_cv, cv_master, job_dict, out_dir, lang)
+        stage = "Cover letter"
+        pdf_cover, cover_content = await asyncio.to_thread(
+            generate_cover_letter, cv_master, job_dict, hooks, out_dir, lang
+        )
+    except CVGenerationError as exc:
+        raise HTTPException(status_code=500, detail=f"{stage} generation failed: {exc}") from exc
+    except Exception as exc:
+        logger.exception("%s generation crashed for job %s", stage, job_id)
+        raise HTTPException(status_code=500, detail=f"{stage} generation crashed. Check backend logs for details.") from exc
 
     # Defence-in-depth: both PDFs must exist on disk before we touch the DB.
     if not (pdf_cv and Path(pdf_cv).exists()):
@@ -355,6 +411,11 @@ async def prepare_application(
     if job.status == "detected":
         job.status = "prepared"
 
+    documents = cv_master.get("application_documents") or {}
+    documents = documents if isinstance(documents, dict) else {}
+    mappings = documents.get("cv_by_track") or {}
+    entry = mappings.get(preparation_track, {}) if isinstance(mappings, dict) else {}
+    entry = entry if isinstance(entry, dict) else {}
     app_row = Application(
         job_id=job.id,
         cv_path=str(pdf_cv),
@@ -363,18 +424,24 @@ async def prepare_application(
         cover_letter_content=cover_content,
         language=lang,
         status="prepared",
+        cv_source_filename=entry.get("filename") if documents.get("mode") == "existing" else None,
+        cv_sha256=hashlib.sha256(Path(pdf_cv).read_bytes()).hexdigest(),
+        cv_mode="existing" if documents.get("mode") == "existing" else "generated",
     )
     db.add(app_row)
     db.commit()
     db.refresh(job)
 
     return PrepareApplicationOut(
+        application_id=app_row.id,
         job_id=job.id,
         cv_path=str(pdf_cv),
         cover_letter_path=str(pdf_cover),
         cv_content=typst_src,
         cover_letter_content=cover_content,
         language=lang,
+        cv_provenance={"mode": app_row.cv_mode, "source_filename": app_row.cv_source_filename,
+                       "sha256": app_row.cv_sha256, "language": lang},
     )
 
 
@@ -391,8 +458,7 @@ def _resolve_pdf_path(
       1. If `saved_path` exists as-is → return it.
       2. If it's absolute, try re-basing it into the current `settings.data_path`
          by matching the tail after `/data/`.
-      3. Try the canonical fallback: `settings.data_path/applications/{slug}/{kind}.pdf`.
-      4. Give up → None.
+      3. Give up → None; never substitute another application from the same company.
 
     If a fallback works, persist the corrected path so the next call is a
     direct hit (self-healing).
@@ -420,12 +486,6 @@ def _resolve_pdf_path(
             if candidate.exists():
                 return _persist(candidate)
 
-    # Canonical fallback: data/applications/{slug}/{kind}.pdf
-    slug = _company_slug(job.company, job.id)
-    canonical = settings.data_path / "applications" / slug / f"{kind}.pdf"
-    if canonical.exists():
-        return _persist(canonical)
-
     return None
 
 
@@ -440,9 +500,7 @@ def get_cv(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=410,
             detail=(
-                f"CV file missing on disk (checked '{job.cv_path}' and "
-                f"'{settings.data_path}/applications/{_company_slug(job.company, job.id)}/cv.pdf'). "
-                "Regenerate with 'Prepare application'."
+                "The CV file is no longer available. Prepare the application again."
             ),
         )
     safe_name = f"cv_{_company_slug(job.company, job.id)}.pdf"
@@ -464,9 +522,7 @@ def get_cover_letter(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=410,
             detail=(
-                f"Cover file missing on disk (checked '{job.cover_letter_path}' and "
-                f"'{settings.data_path}/applications/{_company_slug(job.company, job.id)}/cover.pdf'). "
-                "Regenerate with 'Prepare application'."
+                "The cover letter is no longer available. Prepare the application again."
             ),
         )
     safe_name = f"cover_{_company_slug(job.company, job.id)}.pdf"
