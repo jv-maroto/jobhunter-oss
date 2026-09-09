@@ -51,12 +51,10 @@ export function JobsCompactList({
               key={job.id}
               className="row-hover flex items-center gap-3 px-3.5 py-2.5"
             >
-              <ScoreBadge score={job.match_score ?? 0} />
+              <ScoreBadge score={job.match_score ?? 0} reason={job.rejection_reason} />
               <div className="min-w-0 flex-1">
-                <a
-                  href={job.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href={`/jobs/${job.id}`}
                   className="group/link flex items-center gap-1 min-w-0"
                   title={job.title ?? ""}
                 >
@@ -64,7 +62,7 @@ export function JobsCompactList({
                     {job.title ?? "Untitled"}
                   </span>
                   <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground group-hover/link:text-[hsl(var(--accent-1))] transition-colors" />
-                </a>
+                </Link>
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                   <span className="truncate" title={job.company ?? ""}>
                     {job.company ?? "—"}

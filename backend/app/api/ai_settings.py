@@ -18,6 +18,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.ai import keystore
+from app.ai.providers.codex_provider import codex_available
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ def _public_state() -> dict[str, Any]:
         "local_model": settings.ollama_model,
         "local_model_available": keystore.local_model_available(),
         "active": keystore.active_label(),
+        "codex_available": codex_available(),
+        "codex_model": settings.codex_model,
     }
 
 

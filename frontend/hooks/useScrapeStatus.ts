@@ -32,6 +32,7 @@ export function useScrapeStatus() {
   const prevRunningRef = React.useRef<boolean | null>(null);
 
   const query = useQuery<ScrapeStatus>({
+    throwOnError: false,
     queryKey: ["scrape-status"],
     queryFn: () => api<ScrapeStatus>("/jobs/scrape-status"),
     // Poll while running; slower poll when idle to catch scrapes started from

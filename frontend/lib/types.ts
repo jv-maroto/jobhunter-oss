@@ -18,8 +18,41 @@ export type PersonStatus =
 
 export type PostStatus = "draft" | "scheduled" | "published";
 
-export type JobTrack = "dev" | "sysadmin";
+export const JOB_TRACK_LABELS = {
+  data_engineer: "Data Engineer",
+  data_analyst: "Data Analyst",
+  data_scientist: "Data Scientist",
+  analytics_eng: "Analytics Engineer",
+  bi: "Business Intelligence",
+  ai_ml: "AI / Machine Learning",
+  quant: "Quantitative Research / Development",
+  dev: "Software Development",
+  sysadmin: "Systems / DevOps",
+} as const;
+export type JobTrack = keyof typeof JOB_TRACK_LABELS;
+export const EMPLOYMENT_LABELS = {
+  permanent: "Permanent",
+  temporary: "Temporary",
+  contract: "Contract / freelance",
+  internship: "Internship",
+  apprenticeship: "Apprenticeship",
+  full_time: "Full-time",
+  part_time: "Part-time",
+} as const;
+export type EmploymentType = keyof typeof EMPLOYMENT_LABELS;
 export type SalaryBand = "high" | "mid" | "low" | "unknown";
+
+export interface QualificationAssessment {
+  recommendation: "strong" | "consider" | "stretch" | "unlikely" | "unknown";
+  summary: string;
+  checks: {
+    kind: "education" | "experience" | "skills" | "language";
+    importance: "required" | "preferred" | "unclear";
+    status: "met" | "gap" | "unknown";
+    requirement: string;
+    evidence: string | null;
+  }[];
+}
 
 export interface Job {
   id: number;
@@ -29,9 +62,16 @@ export interface Job {
   company: string;
   location: string;
   remote: boolean;
+  employment_type?: EmploymentType | null;
+  employment_compatible?: boolean | null;
+  seniority_compatible?: boolean | null;
+  salary_in_range?: boolean | null;
+  remote_compatible?: boolean | null;
+  location_compatible?: boolean | null;
   salary_min?: number;
   salary_max?: number;
   currency?: string;
+  salary_period?: "year" | "month" | "week" | "day" | "hour" | null;
   posted_at: string;
   description: string;
   track: JobTrack;
@@ -45,6 +85,11 @@ export interface Job {
   applied_at?: string;
   cv_path?: string;
   cover_letter_path?: string;
+  created_at?: string;
+  notes?: string | null;
+  next_action?: string | null;
+  next_action_at?: string | null;
+  qualification_assessment?: QualificationAssessment | null;
 }
 
 export interface Person {
@@ -89,9 +134,37 @@ export interface Metrics {
 }
 
 export interface PrepareApplicationResponse {
+  application_id: number;
+  job_id: number;
   cv_path: string;
   cover_letter_path: string;
-  source_url: string;
+  cv_content: string;
+  cover_letter_content: string;
+  language: string;
+  cv_provenance: {
+    mode: string;
+    source_filename: string | null;
+    sha256: string | null;
+    language: string;
+  };
+}
+
+export interface ApplicationReview {
+  application_id: number | null;
+  job: Job;
+  status: string;
+  provider: string | null;
+  submitted_at: string | null;
+  prepared_at: string | null;
+  cv_url: string | null;
+  cover_url: string | null;
+  cv_source_filename: string | null;
+  cover_letter_content: string | null;
+}
+
+export interface ApplicationsPage {
+  total: number;
+  items: ApplicationReview[];
 }
 
 export interface CompanyAggregate {

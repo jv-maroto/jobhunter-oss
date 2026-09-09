@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from app.config import settings
+from app.profile_store import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +31,12 @@ def load_draft() -> dict[str, Any]:
         data.setdefault("merged", None)
         return data
     except Exception as exc:  # noqa: BLE001
-        logger.warning("draft ilegible, reiniciando: %s", exc)
-        return _empty()
+        raise ValueError("Unreadable onboarding draft; restore it before saving changes") from exc
 
 
 def _write(data: dict[str, Any]) -> None:
     path = settings.onboarding_draft_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(path, data)
 
 
 def save_fragment(source: str, fragment: dict[str, Any]) -> dict[str, Any]:
@@ -72,3 +71,19 @@ def clear_draft() -> None:
             path.unlink()
         except Exception as exc:  # noqa: BLE001
             logger.warning("no se pudo borrar el draft: %s", exc)
+
+
+def start_from_profile(cv_master: dict[str, Any]) -> None:
+    _write({"fragments": {}, "base": cv_master, "merged": {
+        "cv_master": cv_master, "field_sources": {}, "conflicts": [],
+    }})
+
+
+def save_review(cv_master: dict[str, Any]) -> dict[str, Any]:
+    data = load_draft()
+    data["base"] = cv_master
+    previous = data.get("merged") or {}
+    if data.get("merged") is not None or not data.get("fragments"):
+        data["merged"] = {"field_sources": {}, "conflicts": [], **previous, "cv_master": cv_master}
+    _write(data)
+    return data

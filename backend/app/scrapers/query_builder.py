@@ -37,49 +37,17 @@ def build_search_queries(cv: dict | None, prefs: dict | None, max_n: int = 8) ->
 
     # Override manual explicito.
     if prefs.get("queries_auto") is False and prefs.get("queries"):
-        return [str(q) for q in prefs["queries"]][:max_n]
+        return list(dict.fromkeys(str(q).strip() for q in prefs["queries"] if str(q).strip()))
 
     max_n = int(prefs.get("max_queries", max_n) or max_n)
 
-    # `search_preferences.roles` (elegidos por el usuario/IA en onboarding) tienen
-    # PRIORIDAD sobre los roles derivados de la experiencia.
     pref_roles = [str(r).strip() for r in (prefs.get("roles") or []) if str(r).strip()]
-    exp_roles = [
-        str(e.get("role", "")).strip()
-        for e in (cv.get("experience") or [])
-        if e.get("role")
-    ]
-    roles: list[str] = []
-    for r in pref_roles + exp_roles:
-        if r and r not in roles:
-            roles.append(r)
-    skills = _flatten_skills(cv.get("skills"))
-
-    queries: list[str] = []
-    seen: set[str] = set()
-
-    def _add(q: str) -> None:
-        q = q.strip()
-        key = q.lower()
-        if q and key not in seen:
-            seen.add(key)
-            queries.append(q)
-
-    # Roles tal cual + variante remota.
-    for role in roles[:3]:
-        _add(role)
-        _add(f"{role} remote")
-
-    # Skill principal como "<skill> developer".
-    if skills:
-        _add(f"{skills[0]} developer")
-        if len(skills) > 1:
-            _add(f"{skills[1]} developer")
-
+    exp_roles = [str(e.get("role", "")).strip() for e in (cv.get("experience") or []) if e.get("role")]
+    roles = pref_roles or exp_roles
+    queries = list(dict.fromkeys(roles))
+    max_n = max(max_n, len(queries))
     if not queries:
-        logger.info("query_builder: perfil sin roles/skills, usando fallback legacy")
-        queries = list(_LEGACY_FALLBACK)
-
+        queries = _flatten_skills(cv.get("skills")) or list(_LEGACY_FALLBACK)
     base = queries[:max_n]
 
     # Scraping IA (opcional): enriquece las queries con variantes/idiomas via LLM.

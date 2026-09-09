@@ -49,7 +49,11 @@ class Settings(BaseSettings):
     openai_scoring_model: str = Field(default="gpt-4o-mini")
     openai_generation_model: str = Field(default="gpt-4o-mini")
     # auto: cloud si hay clave -> Ollama local -> nada (scraping basico sin IA).
-    ai_mode: str = Field(default="auto")  # auto | cloud | local | off
+    ai_mode: str = Field(default="auto")
+    codex_binary: str = Field(default="codex")
+    codex_model: str = Field(default="gpt-6-astra")
+    codex_reasoning_effort: str = Field(default="medium")
+    codex_timeout_seconds: int = Field(default=180, gt=0)
     ai_cloud_provider: str = Field(default="anthropic")  # anthropic | openai | gemini
     ai_scraping_enabled: bool = Field(default=False)  # queries IA + re-rank de resultados
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +20,8 @@ from app.onboarding import detect, draft_store, fusion
 from app.onboarding.cv_parser import extract_text
 from app.onboarding.github_ingest import fetch_github_fragment
 from app.onboarding.linkedin_parser import from_extension, parse_zip
+from app.onboarding.schema import CvMaster
+from app.profile_store import read_profile, write_profile
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -116,18 +117,14 @@ def post_linkedin_paste(body: LinkedinPasteBody) -> dict[str, Any]:
 @router.post("/merge")
 def post_merge() -> dict[str, Any]:
     fragments = draft_store.get_fragments()
-    if not fragments:
-        raise HTTPException(status_code=400, detail="No hay fragmentos que fusionar")
-    # Base = cv_master actual (para conservar search_preferences/narratives).
-    base: dict[str, Any] = {}
-    cv_path = settings.cv_master_file
-    if cv_path.exists():
-        try:
-            cur = json.loads(cv_path.read_text(encoding="utf-8"))
-            if "_README" not in cur:
-                base = cur
-        except Exception:  # noqa: BLE001
-            base = {}
+    try:
+        base = draft_store.load_draft().get("base") or read_profile()
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if "_README" in base:
+        base = {}
+    if not fragments and not base:
+        raise HTTPException(status_code=400, detail="No hay perfil ni fragmentos que fusionar")
     result = fusion.fuse(fragments, base)
     draft_store.set_merged(result["cv_master"], result["field_sources"], result["conflicts"])
     return result
@@ -140,6 +137,15 @@ def get_draft() -> dict[str, Any]:
 
 class CompleteBody(BaseModel):
     cv_master: dict[str, Any]
+
+
+@router.put("/draft")
+def put_draft(body: CompleteBody) -> dict[str, Any]:
+    try:
+        CvMaster.model_validate(body.cv_master)
+        return draft_store.save_review(body.cv_master)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/complete")
@@ -158,26 +164,14 @@ def post_complete(body: CompleteBody) -> dict[str, Any]:
         }
     )
 
-    path = settings.cv_master_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backups = path.parent / "cv_master_backups"
-        backups.mkdir(exist_ok=True)
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        shutil.copy2(path, backups / f"cv_master_{ts}.json")
-    path.write_text(json.dumps(cv, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # Invalida cache en memoria.
     try:
-        from app.services import load_cv_master
-
-        load_cv_master.cache_clear()
-    except Exception:  # noqa: BLE001
-        pass
+        write_profile(cv)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     detect.mark_onboarded()
     draft_store.clear_draft()
-    return {"ok": True, "path": str(path), "onboarded": True}
+    return {"ok": True, "path": str(settings.cv_master_file), "onboarded": True}
 
 
 class RolesBody(BaseModel):
@@ -217,56 +211,13 @@ def post_roles(body: RolesBody | None = None) -> dict[str, Any]:
 
 @router.post("/reset")
 def post_reset() -> dict[str, Any]:
-    """Vuelve a dejar la instancia como recien instalada, para rehacer el wizard.
-
-    ANTES ESTO NO FUNCIONABA: solo borraba el draft y el marcador, pero
-    `is_onboarded()` mira TAMBIEN cv_master.json y, al tener ya un nombre real,
-    seguia devolviendo True -> el wizard no volvia nunca.
-
-    Ahora ademas archivamos el cv_master actual (con backup timestamped, nunca se
-    pierde) y dejamos una plantilla con `_README`, que es la señal que usa
-    `detect.is_onboarded()` para saber que la instancia esta sin configurar.
-    """
-    draft_store.clear_draft()
-
-    marker = settings.onboarding_marker_file
-    if marker.exists():
-        marker.unlink()
-
-    backup_path: str | None = None
-    cv_path = settings.cv_master_file
-    if cv_path.exists():
-        backups = cv_path.parent / "cv_master_backups"
-        backups.mkdir(parents=True, exist_ok=True)
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        dest = backups / f"cv_master_{ts}.json"
-        shutil.copy2(cv_path, dest)
-        backup_path = str(dest)
-        logger.info("onboarding reset: cv_master respaldado en %s", dest)
-
-    cv_path.parent.mkdir(parents=True, exist_ok=True)
-    cv_path.write_text(
-        json.dumps(
-            {
-                "_README": (
-                    "Instancia reseteada: completa el onboarding para regenerar tu "
-                    "perfil. Tu CV anterior esta en app/data/cv_master_backups/."
-                ),
-                "personal": {"name": "", "email": ""},
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    # Invalida la cache en memoria del perfil.
     try:
-        from app.services import load_cv_master
-
-        if hasattr(load_cv_master, "cache_clear"):
-            load_cv_master.cache_clear()
-    except Exception:  # noqa: BLE001
-        pass
-
-    return {"ok": True, "onboarded": detect.is_onboarded(), "backup": backup_path}
+        cv = read_profile()
+        backup = write_profile(cv) if cv else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    draft_store.start_from_profile(cv if "_README" not in cv else {})
+    marker = settings.onboarding_marker_file
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("in_progress", encoding="utf-8")
+    return {"ok": True, "onboarded": False, "backup": str(backup) if backup else None}

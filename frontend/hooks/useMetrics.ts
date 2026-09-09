@@ -6,6 +6,7 @@ import type { CompanyAggregate, Metrics } from "@/lib/types";
 
 export function useMetricsToday() {
   return useQuery<Metrics>({
+    throwOnError: false,
     queryKey: ["metrics", "today"],
     queryFn: () => api<Metrics>("/metrics/today"),
   });

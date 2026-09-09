@@ -33,10 +33,18 @@ export interface SearchProfile {
 }
 
 export interface SearchProfilePatch {
+  roles?: string[];
+  employment_types?: string[];
+  seniority?: string | null;
+  remote_only?: boolean;
+  willing_to_relocate?: boolean;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  salary_currency?: string | null;
   region_preset?: string;
   regions?: string[];
   platforms?: Record<string, boolean>;
-  residence_country?: string;
+  residence_country?: string | null;
   queries_auto?: boolean;
   queries?: string[];
   results_per_query?: number;
@@ -47,6 +55,11 @@ export interface ScrapeResult {
   scraped: number;
   inserted: number;
   duplicates: number;
+  filtered_geography?: number;
+  unconfirmed_geography?: number;
+  filtered_remote?: number;
+  filtered_employment?: number;
+  filtered_seniority?: number;
 }
 
 export const searchProfileApi = {

@@ -2,7 +2,7 @@
 // Las claves se envían a PUT y NUNCA se devuelven en claro: solo `has_key`.
 import { api } from "@/lib/api";
 
-export type AiMode = "auto" | "cloud" | "local" | "off";
+export type AiMode = "auto" | "cloud" | "local" | "codex" | "off";
 export type AiProvider = "anthropic" | "openai" | "gemini";
 
 export interface AiHasKey {
@@ -17,6 +17,8 @@ export interface AiSettings {
   ai_scraping_enabled: boolean;
   has_key: AiHasKey;
   local_available: boolean;
+  codex_available: boolean;
+  codex_model: string;
   /** Modelo Ollama configurado en el backend (OLLAMA_MODEL). */
   local_model: string;
   /** true si ese modelo esta descargado (`ollama pull`). */

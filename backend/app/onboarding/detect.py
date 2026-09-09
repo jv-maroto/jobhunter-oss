@@ -25,7 +25,7 @@ _PLACEHOLDER_NAMES = {"", "your full name"}
 def is_onboarded() -> bool:
     marker = settings.onboarding_marker_file
     if marker.exists():
-        return True
+        return marker.read_text(encoding="utf-8").strip() != "in_progress"
 
     cv_path = settings.cv_master_file
     if not cv_path.exists():

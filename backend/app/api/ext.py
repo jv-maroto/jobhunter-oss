@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -60,6 +61,9 @@ def get_profile() -> dict:
     narratives = cv.get("narratives", {}) or {}
     education = cv.get("education") or []
     top_education = education[0] if education else {}
+    current_job = next((item for item in cv.get("experience", [])
+                        if item.get("current") is True or str(item.get("end", "")).lower()
+                        in {"present", "current", "actualidad", "heute", "aujourd'hui"}), {})
     return {
         "first_name": first,
         "last_name": last,
@@ -69,13 +73,14 @@ def get_profile() -> dict:
         "linkedin_url": personal.get("linkedin", ""),
         "github_url": personal.get("github", ""),
         "portfolio_url": personal.get("portfolio", ""),
-        "location": personal.get("location_short", ""),
+        "location": personal.get("location_short") or personal.get("location", ""),
         "city": personal.get("city", ""),
         "country": personal.get("country", ""),
         "academic_degree": (
             personal.get("academic_degree")
             or top_education.get("degree_en")
             or top_education.get("degree_es")
+            or top_education.get("degree")
             or ""
         ),
         "graduation_date": (
@@ -83,18 +88,27 @@ def get_profile() -> dict:
             or top_education.get("graduation_date")
             or top_education.get("year", "")
         ),
-        "current_role": cv.get("experience", [{}])[0].get("role", "") if cv.get("experience") else "",
-        "current_company": cv.get("experience", [{}])[0].get("company", "") if cv.get("experience") else "",
-        "years_experience": str(cv.get("years_experience", "")),
-        "salary_min_eur": prefs.get("salary_min_eur", 30000),
-        "salary_max_eur": prefs.get("salary_max_eur", 50000),
+        "current_role": personal.get("current_role") or current_job.get("role", ""),
+        "current_company": personal.get("current_company") or current_job.get("company", ""),
+        "years_experience": str(cv["years_experience"]) if cv.get("years_experience") is not None else "",
+        "salary_min_eur": prefs.get("salary_min_eur"),
+        "salary_max_eur": prefs.get("salary_max_eur"),
+        "salary_min": prefs.get("salary_min"),
+        "salary_max": prefs.get("salary_max"),
+        "salary_currency": prefs.get("salary_currency"),
         "salary_expectation": prefs.get("salary_expectation", ""),
-        "work_authorization_eu": prefs.get("work_authorization_eu", False),
+        "work_authorization_eu": prefs.get("work_authorization_eu"),
+        "work_authorization_ch": prefs.get("work_authorization_ch"),
+        "work_authorization_us": prefs.get("work_authorization_us"),
+        "requires_sponsorship_us": prefs.get("requires_sponsorship_us"),
         "residence_country": prefs.get("residence_country") or personal.get("country", ""),
-        "willing_to_relocate": prefs.get("willing_to_relocate", True),
-        "remote_preference": prefs.get("remote_preference", "Open to remote"),
-        "notice_period": prefs.get("notice_period", "2 weeks"),
-        "languages": prefs.get("languages_text", ""),
+        "willing_to_relocate": prefs.get("willing_to_relocate"),
+        "remote_preference": prefs.get("remote_preference", ""),
+        "notice_period": prefs.get("notice_period", ""),
+        "languages": prefs.get("languages_text") or "; ".join(
+            f"{item.get('name', '')}: {item.get('level', '')}" for item in cv.get("languages", [])
+            if item.get("name")
+        ),
         "summary": cv.get("summary_en") or cv.get("summary_es") or "",
         # Long-form narratives — define in cv_master.json under "narratives":
         #   { "experience": "...", "frontend_showcase": "...", "backend_showcase": "...",
@@ -309,26 +323,29 @@ class AppliedIn(BaseModel):
     job_id: int
     platform: str = ""
     apply_url: str = ""
-    status: str = "submitted"
+    status: Literal["submitted"] = "submitted"
     queue_id: int | None = None
     screening_answers: dict | None = None
 
 
 @router.post("/applied")
 def report_applied(payload: AppliedIn, db: Session = Depends(get_db)) -> dict:
-    """La extension reporta que una oferta se envio -> avanza el pipeline a 'applied'."""
+    """Record an explicit user report of submission, not independent ATS evidence."""
     from app.apply.orchestrator import record_applied
 
     job = db.get(Job, payload.job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job no encontrado")
-    app_row = record_applied(
-        db, job,
-        platform=payload.platform,
-        apply_url=payload.apply_url,
-        screening_answers=payload.screening_answers,
-        queue_id=payload.queue_id,
-    )
+    try:
+        app_row = record_applied(
+            db, job,
+            platform=payload.platform,
+            apply_url=payload.apply_url,
+            screening_answers=payload.screening_answers,
+            queue_id=payload.queue_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True, "job_id": job.id, "job_status": job.status, "application_id": app_row.id}
 
 

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { ExternalLink, MapPin, Globe, X } from "lucide-react";
 import {
   Table,
@@ -23,7 +24,7 @@ import {
   sourceFriction,
 } from "@/lib/utils";
 import { Zap, FileText, ShieldAlert } from "lucide-react";
-import type { Job } from "@/lib/types";
+import { EMPLOYMENT_LABELS, JOB_TRACK_LABELS, type Job } from "@/lib/types";
 
 export function JobTable({ jobs }: { jobs: Job[] }) {
   const [skipping, setSkipping] = React.useState<Job | null>(null);
@@ -44,9 +45,9 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
             <TableRow>
               <TableHead
                 className="w-[68px]"
-                title="Match score (0-100) — probability the job aligns with your CV. Computed by Claude against your skills & projects."
+                title="Fit score 0–100; estimate, not hiring probability."
               >
-                Match %
+                Fit score
               </TableHead>
               <TableHead>Title</TableHead>
               <TableHead className="w-[150px]">Company</TableHead>
@@ -85,13 +86,11 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
               return (
                 <TableRow key={job.id}>
                   <TableCell>
-                    <ScoreBadge score={job.match_score ?? 0} />
+                    <ScoreBadge score={job.match_score ?? 0} reason={job.rejection_reason} />
                   </TableCell>
                   <TableCell className="font-medium min-w-0">
-                    <a
-                      href={job.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Link
+                      href={`/jobs/${job.id}`}
                       className="group/link block min-w-0"
                       title={title}
                     >
@@ -101,7 +100,8 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
                         </span>
                         <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground group-hover/link:text-[hsl(var(--accent-1))] transition-colors" />
                       </span>
-                    </a>
+                    </Link>
+                    <p className="mt-1 text-[10px] text-muted-foreground">{JOB_TRACK_LABELS[job.track] ?? job.track} · {job.employment_type ? EMPLOYMENT_LABELS[job.employment_type] : "Contract not stated"}</p>
                     {matches.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {matches.slice(0, 2).map((k) => (
@@ -169,7 +169,7 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground mono text-xs hidden lg:table-cell whitespace-nowrap">
-                    {formatSalary(job.salary_min, job.salary_max, job.currency)}
+                    {formatSalary(job.salary_min, job.salary_max, job.currency, job.salary_period)}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <Badge variant="mono" className="capitalize">

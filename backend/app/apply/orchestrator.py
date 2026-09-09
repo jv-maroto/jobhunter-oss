@@ -91,7 +91,7 @@ def apply_to_job(
             language=materials.language,
         )
         db.add(app)
-    else:
+    elif app.status == "prepared" and app.submitted_at is None:
         app.provider = "manual"
         app.apply_url = job.source_url
     db.commit()
@@ -115,29 +115,48 @@ def record_applied(
     screening_answers: dict | None = None,
     queue_id: int | None = None,
 ) -> Application:
-    """Registra que una oferta se envio (desde la extension) y avanza el pipeline."""
+    """Record the user's submission report; this is not an ATS receipt."""
     from datetime import datetime
 
-    app = _latest_application(db, job.id)
+    item = None
+    if queue_id is not None:
+        item = db.get(ApplyQueueItem, queue_id)
+        if item is None or item.job_id != job.id:
+            raise ValueError("Queue item does not belong to this job")
+        app = db.get(Application, item.application_id) if item.application_id is not None else None
+        if item.application_id is not None and (app is None or app.job_id != job.id):
+            raise ValueError("Queued application does not belong to this job")
+    else:
+        app = _latest_application(db, job.id)
+
     if app is None:
-        app = Application(job_id=job.id, language="en")
+        materials = (item.materials or {}) if item is not None else {}
+        app = Application(
+            job_id=job.id, status="prepared", language=materials.get("language") or "en",
+            cv_path=materials.get("cv_path"),
+            cover_letter_path=materials.get("cover_letter_path"),
+        )
         db.add(app)
-    app.status = "submitted"
-    app.provider = "extension"
-    app.apply_url = apply_url or app.apply_url
-    app.submitted_at = datetime.utcnow()
-    if screening_answers:
-        app.screening_answers = screening_answers
+        db.flush()
+    now = datetime.utcnow()
+    if app.status == "prepared":
+        app.status = "submitted"
+    if app.submitted_at is None:
+        app.provider = "extension"
+        app.apply_url = apply_url or app.apply_url
+        app.submitted_at = now
+        if screening_answers:
+            app.screening_answers = screening_answers
 
     # Avanza el pipeline (forward-only basico).
     if job.status in ("detected", "prepared", "interested"):
         job.status = "applied"
-        job.applied_at = datetime.utcnow()
+    if job.status in ("applied", "interviewing", "offer") and job.applied_at is None:
+        job.applied_at = app.submitted_at
 
-    if queue_id is not None:
-        item = db.get(ApplyQueueItem, queue_id)
-        if item is not None:
-            item.status = "submitted"
+    if item is not None:
+        item.application_id = app.id
+        item.status = "submitted"
 
     db.commit()
     db.refresh(app)

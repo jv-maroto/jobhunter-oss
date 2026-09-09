@@ -17,6 +17,28 @@ function safeParse(dateStr?: string | null): Date | null {
   }
 }
 
+export function apiDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const normalized = /T/.test(value) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value) ? `${value}Z` : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function localDateTimeInput(value?: string | null): string {
+  const date = apiDate(value);
+  if (!date) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function publicJobUrl(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
+}
+
 export function formatRelative(dateStr?: string | null, fallback = "—"): string {
   const d = safeParse(dateStr);
   if (!d) return fallback;
@@ -30,15 +52,20 @@ export function formatShort(dateStr?: string | null, fmt = "EEE d MMM", fallback
 }
 
 export function formatSalary(
-  min?: number,
-  max?: number,
-  currency = "EUR",
+  min?: number | null,
+  max?: number | null,
+  currency?: string | null,
+  period?: string | null,
 ): string {
-  const symbol = currency === "EUR" ? "€" : currency === "USD" ? "$" : currency;
-  if (!min && !max) return "—";
-  if (min && max) return `${min / 1000}k–${max / 1000}k ${symbol}`;
-  const v = (min ?? max)!;
-  return `${v / 1000}k ${symbol}`;
+  const valid = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0;
+  if (!valid(min) && !valid(max)) return "—";
+  const amount = (n: number) => n >= 1000 ? `${Number((n / 1000).toFixed(2))}k` : String(n);
+  const range = valid(min) && valid(max)
+    ? (min === max ? amount(min) : `${amount(min)}–${amount(max)}`)
+    : valid(min) ? `${amount(min)}+` : `≤${amount(max!)}`;
+  const code = currency?.trim().toUpperCase();
+  const unit = code === "EUR" ? "€" : code === "GBP" ? "£" : code || "currency unknown";
+  return `${range} ${unit}${period ? ` / ${period}` : ""}`;
 }
 
 export function initials(name: string): string {
@@ -138,10 +165,6 @@ export function languageLabel(lang: string): { label: string; flag: string } {
   }
 }
 
-/**
- * How much friction it takes to actually apply to a job from each source.
- * Used to weight the Today table — easy sources first, hard sources last.
- */
 export type ApplyFriction = "easy" | "medium" | "hard";
 
 export function sourceFriction(source?: string | null): {
@@ -149,51 +172,10 @@ export function sourceFriction(source?: string | null): {
   label: string;
   hint: string;
 } {
-  const s = (source ?? "").toLowerCase();
-  if (
-    s.includes("linkedin") ||
-    s.includes("welcometothejungle") ||
-    s.includes("welcome") ||
-    s.includes("otta") ||
-    s.includes("landing.jobs") ||
-    s.includes("workable")
-  ) {
-    return {
-      level: "easy",
-      label: "Easy apply",
-      hint: "1-2 clicks with your saved profile. Apply from this list directly.",
-    };
-  }
-  if (s.includes("wellfound") || s.includes("angellist")) {
-    return {
-      level: "medium",
-      label: "Account",
-      hint: "Wellfound (AngelList Talent): one-time account import from LinkedIn, then 2-click apply.",
-    };
-  }
-  if (s.includes("remotive")) {
-    return {
-      level: "medium",
-      label: "External link",
-      hint: "Remotive aggregates jobs from external sites — you'll land on the company ATS.",
-    };
-  }
-  if (
-    s.includes("indeed") ||
-    s.includes("glassdoor") ||
-    s.includes("ziprecruiter") ||
-    s.includes("monster")
-  ) {
-    return {
-      level: "hard",
-      label: "Account first",
-      hint: "Indeed/Glassdoor/ZipRecruiter ask to create an account or redirect to external site. Do that ONCE then it gets easier.",
-    };
-  }
   return {
     level: "medium",
-    label: "Form",
-    hint: "Custom form. Use the generated CV + cover, fill in 1-2 fields by hand.",
+    label: source === "manual" ? "Saved posting" : "Check posting",
+    hint: "Review the employer's posting for its application steps. Opening a link does not submit an application.",
   };
 }
 

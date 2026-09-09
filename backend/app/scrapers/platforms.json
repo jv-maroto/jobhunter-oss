@@ -6,7 +6,8 @@
       "label": "LinkedIn",
       "countries": [
         "EU",
-        "REMOTE"
+        "REMOTE",
+        "CH"
       ],
       "languages": [
         "en"
@@ -41,7 +42,8 @@
         "DK",
         "NO",
         "FI",
-        "REMOTE"
+        "REMOTE",
+        "CH"
       ],
       "languages": [
         "en"
@@ -66,7 +68,8 @@
         "FR",
         "GB",
         "NL",
-        "IT"
+        "IT",
+        "CH"
       ],
       "languages": [
         "en"
@@ -87,7 +90,8 @@
       "label": "Google Jobs",
       "countries": [
         "EU",
-        "REMOTE"
+        "REMOTE",
+        "CH"
       ],
       "languages": [
         "en"

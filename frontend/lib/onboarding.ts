@@ -67,6 +67,7 @@ export interface RoleSuggestion {
 
 export const REGION_PRESETS = [
   { id: "only_spain", label: "Solo España", regions: ["ES"] },
+  { id: "only_switzerland", label: "Solo Suiza", regions: ["CH"] },
   { id: "all_europe", label: "Toda Europa", regions: ["EU"] },
   { id: "remote_worldwide", label: "Remoto (worldwide)", regions: ["REMOTE"] },
 ] as const;
@@ -74,6 +75,7 @@ export const REGION_PRESETS = [
 // Países sueltos para selección "custom".
 export const COUNTRY_OPTIONS = [
   { iso: "ES", label: "España" },
+  { iso: "CH", label: "Suiza" },
   { iso: "DE", label: "Alemania" },
   { iso: "FR", label: "Francia" },
   { iso: "SE", label: "Suecia" },
@@ -116,9 +118,12 @@ export const onboardingApi = {
   suggestRoles: () =>
     api<{ roles: RoleSuggestion[] }>("/onboarding/roles", { method: "POST" }),
 
-  draft: () => api<{ fragments: Record<string, Json>; merged: MergeResult | null }>(
+  draft: () => api<{ fragments: Record<string, Json>; base?: CvMaster; merged: MergeResult | null }>(
     "/onboarding/draft",
   ),
+
+  saveDraft: (cv_master: CvMaster) =>
+    api<{ ok: boolean }>("/onboarding/draft", { method: "PUT", body: JSON.stringify({ cv_master }) }),
 
   complete: (cv_master: CvMaster) =>
     api<{ ok: boolean; path: string; onboarded: boolean }>("/onboarding/complete", {

@@ -1,12 +1,13 @@
 // CV template Typst - estilo limpio una columna.
 // Marcadores {{...}} se sustituyen por el generador.
 
-#set document(title: "{{NAME}} - CV", author: "{{NAME}}")
+#set document(title: {{DOCUMENT_TITLE}}, author: {{NAME_STRING}})
 #set page(
   paper: "a4",
+  numbering: "1 / 1",
   margin: (top: 1.5cm, bottom: 1.5cm, left: 1.8cm, right: 1.8cm),
 )
-#set text(font: ("Inter", "Helvetica", "Arial"), size: 10pt, lang: "en")
+#set text(font: ("Inter", "Helvetica", "Arial", "Liberation Sans", "Noto Sans"), size: 10pt, lang: {{LANGUAGE}})
 #set par(leading: 0.55em, justify: false)
 
 #let section(title) = [
@@ -20,22 +21,28 @@
   #text(size: 20pt, weight: "bold")[{{NAME}}] \
   #text(size: 11pt, fill: rgb("#4b5563"))[{{TITLE}}] \
   #text(size: 9pt)[
-    {{EMAIL}} -- {{PHONE}} -- {{LOCATION}} \
-    #link("{{GITHUB}}")[GitHub] -- #link("{{LINKEDIN}}")[LinkedIn] -- #link("{{PORTFOLIO}}")[Portfolio]
+    {{CONTACT}} \
+    {{LINKS}}
   ]
 ]
 
-#section("Summary")
+#section({{SUMMARY_HEADING}})
 {{SUMMARY}}
 
-#section("Experience")
+#section({{EXPERIENCE_HEADING}})
 {{EXPERIENCE}}
 
-#section("Projects")
+#section({{PROJECTS_HEADING}})
 {{PROJECTS}}
 
-#section("Skills")
+#section({{SKILLS_HEADING}})
 {{SKILLS}}
 
-#section("Education")
+#section({{EDUCATION_HEADING}})
 {{EDUCATION}}
+
+#section({{LANGUAGES_HEADING}})
+{{LANGUAGES}}
+
+#section({{CERTIFICATIONS_HEADING}})
+{{CERTIFICATIONS}}

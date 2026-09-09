@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -13,40 +15,45 @@ from app.ai.client import parse_json_block, run_sync
 from app.ai.router import get_router
 from app.models.job import ScoreCache
 from app.schemas.job import ScoredJobResult, ScrapedJob
-from app.scoring.prompts import build_scoring_system, build_scoring_user_prompt
+from app.scoring.compatibility import constrain_score
+from app.scoring.prompts import _flatten_skills, build_scoring_system, build_scoring_user_prompt
 
 logger = logging.getLogger(__name__)
 
-CV_VERSION = "1"
+SCORING_VERSION = "qualification-evidence-3"
 
 
-def _heuristic_result(job: dict[str, Any], cv: dict[str, Any]) -> ScoredJobResult:
+def _heuristic_result(job: dict[str, Any], cv: dict[str, Any], *, assessment: dict[str, Any] | None = None) -> ScoredJobResult:
     """Fallback sin API: keyword overlap con skills del CV."""
     text = " ".join(
         [
             job.get("title", ""),
             job.get("description", "") or "",
-            job.get("location", ""),
-            " ".join(job.get("tags", []) or []),
         ]
     ).lower()
 
-    all_skills = []
-    for v in cv.get("skills", {}).values():
-        if isinstance(v, list):
-            all_skills.extend(v)
-    all_skills = [s.lower() for s in all_skills]
+    all_skills = [skill.lower() for skill in _flatten_skills(cv)]
+    matches = [s for s in all_skills if s and re.search(r"(?<!\w)" + re.escape(s) + r"(?!\w)", text)]
+    from app.scoring.track_detector import detect_track
 
-    matches = [s for s in all_skills if s and s in text]
-    score = min(95, 20 + len(matches) * 6)
+    roles = (cv.get("search_preferences") or {}).get("roles") or []
+    role_match = any(detect_track(str(role)) == detect_track(job.get("title", "")) for role in roles)
+    score = min(54, (40 if role_match else 20) + len(matches) * 6)
 
-    return ScoredJobResult(
+    incomplete = len(str(job.get("description") or "").strip()) < 80
+    if incomplete:
+        score = min(score, 54)
+
+    result = constrain_score(ScoredJobResult(
         match_score=score,
         key_matches=matches[:6] or ["heuristic_fallback"],
         missing_skills=[],
         personalization_hooks=[],
-        rejection_reason=None if score >= 30 else "low keyword overlap (heuristic)",
-    )
+        rejection_reason="Posting requirements are incomplete (heuristic)" if incomplete else (None if score >= 30 else "low keyword overlap (heuristic)"),
+    ), job, cv, assessment=assessment)
+    detail = result.rejection_reason
+    result.rejection_reason = "Heuristic fit estimate (no AI evaluation)" + (f": {detail}" if detail else "")
+    return result
 
 
 def score_job(
@@ -60,16 +67,20 @@ def score_job(
     """
     job_dict: dict[str, Any] = job.model_dump() if isinstance(job, ScrapedJob) else dict(job)
     job_hash: str = job_dict.get("hash") or ""
+    cv_version = hashlib.sha256(json.dumps(
+        {"version": SCORING_VERSION, "cv": cv_master, "job": job_dict},
+        sort_keys=True, ensure_ascii=False, default=str,
+    ).encode()).hexdigest()[:32]
 
     if job_hash:
         cached = db.execute(
             select(ScoreCache).where(
-                ScoreCache.job_hash == job_hash, ScoreCache.cv_version == CV_VERSION
+                ScoreCache.job_hash == job_hash, ScoreCache.cv_version == cv_version
             )
         ).scalar_one_or_none()
         if cached is not None:
             try:
-                return ScoredJobResult.model_validate(cached.result_json)
+                return constrain_score(ScoredJobResult.model_validate(cached.result_json), job_dict, cv_master)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -80,12 +91,14 @@ def score_job(
     else:
         result = _call_router(job_dict, cv_master)
 
+    result = constrain_score(result, job_dict, cv_master)
+
     if job_hash:
         try:
             db.add(
                 ScoreCache(
                     job_hash=job_hash,
-                    cv_version=CV_VERSION,
+                    cv_version=cv_version,
                     result_json=result.model_dump(),
                 )
             )

@@ -8,14 +8,17 @@ guarda previous_job_status para poder Deshacer; idempotente por gmail_id.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
+from app.apply.state import transition_job
 from app.config import settings
 from app.integrations.gmail.base import EmailMessage
 from app.integrations.gmail.query import normalize_company
+from app.models.application import Application
 from app.models.email_event import EmailEvent
 from app.models.job import Job
 
@@ -39,11 +42,12 @@ def _apply_status(job: Job, new_status: str) -> tuple[bool, str]:
     prev = job.status
     if prev in _TERMINAL:
         return False, prev
-    if new_status == "rejected":
-        job.status = "rejected"
-        return True, prev
-    if _ORDER.get(new_status, -1) > _ORDER.get(prev, -1):
-        job.status = new_status
+    if new_status == "rejected" or _ORDER.get(new_status, -1) > _ORDER.get(prev, -1):
+        db = object_session(job)
+        if db is None:
+            job.status = new_status
+        else:
+            transition_job(db, job, new_status, provider="gmail")
         return True, prev
     return False, prev
 
@@ -55,19 +59,19 @@ def match_job(db: Session, classified: dict[str, Any], msg: EmailMessage) -> tup
         return None, "none", 0.0
 
     jobs = db.execute(select(Job)).scalars().all()
-    best: Job | None = None
+    candidates = []
     for job in jobs:
         jc = normalize_company(job.company)
         if not jc or len(jc) < 3:
             continue
         if target == jc or target in jc or jc in target:
-            # Prefiere la oferta no terminal mas reciente.
-            if best is None or (job.status not in _TERMINAL and (job.created_at or 0) > (best.created_at or 0)):
-                best = job
+            candidates.append(job)
 
-    if best is None:
+    if not candidates:
         return None, "none", 0.0
-    return best, "company", float(classified.get("confidence", 0.0))
+    if len(candidates) != 1:
+        return None, "ambiguous_company", 0.0
+    return candidates[0], "company", float(classified.get("confidence", 0.0))
 
 
 def process_email(db: Session, msg: EmailMessage, classified: dict[str, Any], account: str) -> EmailEvent | None:
@@ -87,6 +91,10 @@ def process_email(db: Session, msg: EmailMessage, classified: dict[str, Any], ac
     status = "no_change"
     applied_change: str | None = None
     prev_status: str | None = None
+    previous_followup = {
+        "action": job.next_action if job else None,
+        "at": job.next_action_at.isoformat() if job and job.next_action_at else None,
+    }
     auto_th = settings.gmail_auto_apply_threshold
     match_th = settings.gmail_match_threshold
 
@@ -119,11 +127,19 @@ def process_email(db: Session, msg: EmailMessage, classified: dict[str, Any], ac
     else:
         status = "pending_review"
 
+    application = None
+    if job is not None and applied_change:
+        db.flush()
+        application = db.scalar(select(Application).where(
+            Application.job_id == job.id,
+            Application.status == ("submitted" if job.status == "applied" else job.status),
+        ).order_by(Application.id.desc()))
     event = EmailEvent(
         gmail_id=msg.gmail_id,
         thread_id=msg.thread_id,
         account=account,
         job_id=job.id if job else None,
+        application_id=application.id if application else None,
         type=etype,
         company=classified.get("company") or (job.company if job else None),
         from_email=msg.from_email,
@@ -133,7 +149,7 @@ def process_email(db: Session, msg: EmailMessage, classified: dict[str, Any], ac
         received_at=msg.received_at,
         match_method=method,
         match_confidence=conf,
-        classified_json=classified,
+        classified_json={**classified, "_previous_followup": previous_followup},
         status=status,
         applied_status_change=applied_change,
         previous_job_status=prev_status,
@@ -151,7 +167,14 @@ def undo_event(db: Session, event: EmailEvent) -> bool:
     job = db.get(Job, event.job_id)
     if job is None:
         return False
-    job.status = event.previous_job_status
+    if not event.applied_status_change or job.status != event.applied_status_change.split("->")[-1]:
+        return False
+    transition_job(db, job, event.previous_job_status, provider="gmail")
+    previous_followup = (event.classified_json or {}).get("_previous_followup", {})
+    if job.next_action is None and previous_followup.get("action"):
+        job.next_action = previous_followup["action"]
+        previous_date = previous_followup.get("at")
+        job.next_action_at = datetime.fromisoformat(previous_date) if previous_date else None
     event.status = "dismissed"
     event.applied_status_change = None
     db.commit()

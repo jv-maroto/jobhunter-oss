@@ -7,17 +7,14 @@ invalidacion de cache, mismo patron que settings.put_cv_master). Local-first.
 
 from __future__ import annotations
 
-import json
 import logging
-import shutil
-from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db import get_db
+from app.profile_store import read_profile, write_profile
 from app.schemas.search import PlatformInfo, SearchProfileIn, SearchProfileOut
 from app.scrapers.country_map import resolve_regions
 from app.scrapers.query_builder import build_search_queries
@@ -25,33 +22,6 @@ from app.scrapers.registry import active_platforms, load_catalog, suggest_platfo
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["search-profile"])
-
-
-def _load_cv() -> dict[str, Any]:
-    path = settings.cv_master_file
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return {}
-
-
-def _write_cv(cv: dict[str, Any]) -> None:
-    path = settings.cv_master_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backups = path.parent / "cv_master_backups"
-        backups.mkdir(exist_ok=True)
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        shutil.copy2(path, backups / f"cv_master_{ts}.json")
-    path.write_text(json.dumps(cv, ensure_ascii=False, indent=2), encoding="utf-8")
-    try:
-        from app.services import load_cv_master
-
-        load_cv_master.cache_clear()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 def _platform_info(p: dict) -> PlatformInfo:
@@ -86,18 +56,23 @@ def _build_out(cv: dict) -> SearchProfileOut:
 
 @router.get("/settings/search-profile", response_model=SearchProfileOut)
 def get_search_profile() -> SearchProfileOut:
-    return _build_out(_load_cv())
+    return _build_out(read_profile())
 
 
 @router.put("/settings/search-profile", response_model=SearchProfileOut)
 def put_search_profile(body: SearchProfileIn) -> SearchProfileOut:
-    cv = _load_cv()
+    cv = read_profile()
     prefs = dict(cv.get("search_preferences", {}) or {})
-    # Solo aplica los campos provistos (no None), incluidos los extra permitidos.
-    patch = body.model_dump(exclude_none=True)
+    patch = body.model_dump(exclude_unset=True)
+    if "region_preset" in patch and "regions" not in patch:
+        prefs.pop("regions", None)
     prefs.update(patch)
+    try:
+        SearchProfileIn.model_validate(prefs)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid merged search preferences") from exc
     cv["search_preferences"] = prefs
-    _write_cv(cv)
+    write_profile(cv)
     return _build_out(cv)
 
 

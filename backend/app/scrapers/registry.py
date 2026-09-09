@@ -43,7 +43,7 @@ SCRAPER_BY_ID: dict[str, type[BaseScraper]] = {
     "AdzunaScraper": AdzunaScraper,
 }
 
-_DYNAMIC_KEYS = ("regions", "region_preset", "platforms", "queries")
+_DYNAMIC_KEYS = ("regions", "region_preset", "platforms", "queries", "roles")
 
 
 @lru_cache(maxsize=1)
@@ -163,6 +163,7 @@ def build_jobspy_plans(
                 country_indeed=params["country_indeed"],
                 results_wanted=results,
                 hours_old=hours,
+                is_remote=bool(prefs.get("remote_only")),
             )
         )
 
@@ -201,9 +202,8 @@ def build_active_scrapers(cv: dict | None, prefs: dict | None) -> list[BaseScrap
 
     regions = resolve_regions(prefs)
     if not regions:
-        from app.scrapers import ALL_SCRAPERS
-
-        return [cls() for cls in ALL_SCRAPERS]
+        logger.warning("registry: select target regions before searching the configured roles")
+        return []
 
     queries = build_search_queries(cv or {}, prefs)
     active = active_platforms(prefs, regions)

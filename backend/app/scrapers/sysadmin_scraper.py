@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from app.schemas.job import ScrapedJob
 from app.scrapers.base import BaseScraper
+from app.scrapers.jobspy_scraper import normalize_salary_period
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ class SysAdminScraper(BaseScraper):
             return []
 
     def _fetch_sync(self) -> list[ScrapedJob]:
+        from app.scoring.compatibility import detect_employment_type
+
         try:
             from jobspy import scrape_jobs  # type: ignore[import-not-found]
         except Exception as exc:  # noqa: BLE001
@@ -66,6 +69,7 @@ class SysAdminScraper(BaseScraper):
                 continue
             if df is None or len(df) == 0:
                 continue
+            df = df.astype(object).where(df.notna(), None)
             for _, row in df.iterrows():
                 title = str(row.get("title", "") or "")
                 company = str(row.get("company", "") or "")
@@ -77,7 +81,7 @@ class SysAdminScraper(BaseScraper):
                 remote = bool(row.get("is_remote", False))
                 sal_min = row.get("min_amount")
                 sal_max = row.get("max_amount")
-                currency = row.get("currency", "EUR")
+                currency = row.get("currency")
 
                 posted = row.get("date_posted")
                 if isinstance(posted, str):
@@ -103,7 +107,9 @@ class SysAdminScraper(BaseScraper):
                         remote=remote,
                         salary_min=float(sal_min) if sal_min else None,
                         salary_max=float(sal_max) if sal_max else None,
-                        currency=currency or "EUR",
+                        currency=str(currency).upper() if currency else None,
+                        salary_period=normalize_salary_period(row.get("interval")),
+                        employment_type=detect_employment_type({"title": title, "employment_type": str(row.get("job_type") or "")}),
                         posted_at=posted_dt,
                         description=str(row.get("description", "") or "")[:8000],
                         tags=[query, "sysadmin-track"],

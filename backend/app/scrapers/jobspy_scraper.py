@@ -29,6 +29,11 @@ SEARCH_QUERIES = [
 ]
 
 
+def normalize_salary_period(value: object) -> str | None:
+    raw = str(getattr(value, "value", value) or "").lower()
+    return {"yearly": "year", "annually": "year", "annual": "year", "monthly": "month", "weekly": "week", "daily": "day", "hourly": "hour", "year": "year", "month": "month", "week": "week", "day": "day", "hour": "hour"}.get(raw)
+
+
 @dataclass
 class JobspyPlan:
     """Un grupo de busqueda jobspy: sitios + queries + ubicacion.
@@ -81,6 +86,8 @@ class JobspyScraper(BaseScraper):
             return []
 
     def _fetch_sync(self) -> list[ScrapedJob]:
+        from app.scoring.compatibility import detect_employment_type
+
         try:
             from jobspy import scrape_jobs  # type: ignore[import-not-found]
         except Exception as exc:  # noqa: BLE001
@@ -100,12 +107,16 @@ class JobspyScraper(BaseScraper):
                     "hours_old": plan.hours_old,
                     "verbose": 0,
                 }
+                if "linkedin" in plan.sites:
+                    kwargs["linkedin_fetch_description"] = True
                 if plan.country_indeed:
                     kwargs["country_indeed"] = plan.country_indeed
                 if plan.is_remote:
                     kwargs["is_remote"] = True
+                    if "indeed" in plan.sites:
+                        kwargs.pop("hours_old", None)
                 if "google" in plan.sites:
-                    kwargs["google_search_term"] = query
+                    kwargs["google_search_term"] = " ".join(filter(None, [query, "jobs", plan.location, "remote" if plan.is_remote else ""]))
                 try:
                     df = scrape_jobs(**kwargs)
                 except Exception as exc:  # noqa: BLE001
@@ -115,6 +126,7 @@ class JobspyScraper(BaseScraper):
                 if df is None or len(df) == 0:
                     continue
 
+                df = df.astype(object).where(df.notna(), None)
                 tags_base = [query, *plan.extra_tags]
                 for _, row in df.iterrows():
                     title = str(row.get("title", "") or "")
@@ -129,7 +141,7 @@ class JobspyScraper(BaseScraper):
 
                     sal_min = row.get("min_amount")
                     sal_max = row.get("max_amount")
-                    currency = row.get("currency", "EUR")
+                    currency = row.get("currency")
 
                     posted = row.get("date_posted")
                     if isinstance(posted, str):
@@ -153,9 +165,11 @@ class JobspyScraper(BaseScraper):
                             company=company,
                             location=loc,
                             remote=remote,
-                            salary_min=float(sal_min) if sal_min else None,
-                            salary_max=float(sal_max) if sal_max else None,
-                            currency=currency or "EUR",
+                            salary_min=float(sal_min) if sal_min is not None else None,
+                            salary_max=float(sal_max) if sal_max is not None else None,
+                            currency=str(currency).upper() if currency else None,
+                            salary_period=normalize_salary_period(row.get("interval")),
+                            employment_type=detect_employment_type({"title": title, "employment_type": str(row.get("job_type") or "")}),
                             posted_at=posted_dt,
                             description=str(row.get("description", "") or "")[:8000],
                             tags=tags_base,

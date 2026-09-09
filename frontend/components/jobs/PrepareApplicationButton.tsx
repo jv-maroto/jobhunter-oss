@@ -1,11 +1,12 @@
 "use client";
 
 import { Loader2, Wand2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { usePrepareApplication, useUpdateJobStatus } from "@/hooks/useJobs";
-import { sourceFriction } from "@/lib/utils";
+import { usePrepareApplication } from "@/hooks/useJobs";
 import type { Job } from "@/lib/types";
+import { useLang } from "@/lib/i18n";
 
 export function PrepareApplicationButton({
   job,
@@ -16,58 +17,29 @@ export function PrepareApplicationButton({
   variant?: "default" | "solid" | "outline" | "glass";
   size?: "sm" | "default";
 }) {
+  const { t } = useLang();
   const mutation = usePrepareApplication();
-  const advance = useUpdateJobStatus();
-
-  const markApplied = async () => {
-    try {
-      await advance.mutateAsync({ id: job.id, status: "applied" });
-      toast.success("Marked as applied", { duration: 3000 });
-    } catch {
-      toast.error("Failed to update status");
-    }
-  };
-
-  const friction = sourceFriction(job.source);
+  const router = useRouter();
 
   const generateAndOpen = async () => {
     try {
-      await mutation.mutateAsync(job.id);
-      window.open(job.source_url, "_blank", "noopener,noreferrer");
-      toast.success("CV + cover letter ready", {
+      const prepared = await mutation.mutateAsync(job.id);
+      router.push(`/applications/${prepared.application_id}`);
+      toast.success(t("application_documents_ready"), {
         description:
-          "Job opened in new tab. After you submit, mark it as applied to advance the pipeline.",
-        action: {
-          label: "I applied",
-          onClick: markApplied,
-        },
+          "Review your CV and cover letter before opening the employer's application form.",
         duration: 15000,
       });
     } catch (e) {
-      toast.error("Failed to prepare", { description: String(e) });
+      toast.error(t("prepare_application_failed"), { description: String(e) });
     }
-  };
-
-  const handle = async () => {
-    if (friction.level === "hard") {
-      toast.warning(`${job.source}: account setup first time`, {
-        description: friction.hint,
-        action: {
-          label: "Continue anyway",
-          onClick: generateAndOpen,
-        },
-        duration: 10000,
-      });
-      return;
-    }
-    await generateAndOpen();
   };
 
   return (
     <Button
       size={size}
       variant={variant}
-      onClick={handle}
+      onClick={generateAndOpen}
       disabled={mutation.isPending}
       shimmer={variant === "default" || variant === "solid"}
       className="group"
@@ -77,7 +49,7 @@ export function PrepareApplicationButton({
       ) : (
         <Wand2 />
       )}
-      Prepare
+      {mutation.isPending ? t("preparing_application") : t("prepare_application")}
     </Button>
   );
 }

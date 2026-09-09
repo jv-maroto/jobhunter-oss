@@ -14,7 +14,7 @@ from app.ai.router import get_router
 
 logger = logging.getLogger(__name__)
 
-POST_SYSTEM = """Eres un copywriter especializado en LinkedIn tecnico para perfiles full-stack + sysadmin + AI.
+POST_SYSTEM = """Redactas borradores profesionales de LinkedIn para el perfil proporcionado.
 
 Recibes:
 - profile: JSON con datos del autor (proyectos reales, stack).
@@ -55,6 +55,9 @@ REGLAS:
 - Sin frases vacias tipo "Today I want to share...".
 - Cada post debe poder leerse standalone.
 - Anclar en proyectos/experiencia reales cuando aplique.
+- No inventar incidentes, resultados, tecnologias, certificaciones ni experiencias personales.
+- Conservar la distincion entre practicas, empleo, proyectos academicos y prototipos.
+- Respetar claim_boundaries y context/context_detail; un objetivo de carrera no es un empleo previo.
 - Si count >= 14, alterna categorias agresivamente para no repetir tema.
 - Devolver UNICAMENTE el JSON, sin markdown fences."""
 
@@ -63,17 +66,15 @@ class NoLLMAvailableError(RuntimeError):
     """No LLM provider is configured for the 'generation' tier."""
 
 
-TRENDING_SYSTEM = """Eres copywriter viral de LinkedIn para un ingeniero de
-software. Objetivo: MAXIMIZAR CLICKS al enlace + engagement (comentarios,
-guardados). El perfil del autor (stack, proyectos) llega en `profile` — úsalo
+TRENDING_SYSTEM = """Redactas borradores informativos de LinkedIn basados en fuentes verificables.
+El perfil del autor (stack, proyectos) llega en `profile` — úsalo
 solo como anclaje puntual, no divagues sobre él.
 
 Recibes noticias tech reales (título + URL + summary + score + comentarios HN).
 El `summary` es descripción real (og:description) — no inventes detalles.
 
 PRIORIZACIÓN de qué noticias merecen post: entre las que recibas, prefiere las
-que tienen HOOK VIRAL (lanzamiento grande, drama de empresa, hack ingenioso,
-número impactante, cambio de era, "por qué X ha muerto", contra-intuitivo).
+que aportan informacion concreta y relevante para las areas del autor.
 DESCARTA (devuelve menos posts) las noticias que son:
 - Tutorials genéricos ("cómo hacer X con Y")
 - Nicho muy técnico sin gancho general
@@ -95,11 +96,7 @@ Devuelve JSON:
 }
 
 ESTRUCTURA obligatoria del `content` (LinkedIn scroll-stopper):
-- LÍNEA 1 (hook): frase corta punzante max 100 chars. Es LO ÚNICO que ve el 70%
-  del feed antes del "See more". Ejemplos válidos:
-    "OpenAI acaba de matar el negocio de 20 startups."
-    "Un dev reemplazó Redis con 200 líneas de Rust. Va más rápido."
-    "Cloudflare pagó 200M por algo que puedes montar en un fin de semana."
+- LÍNEA 1: frase breve de hasta 100 caracteres que resuma un hecho de la fuente.
 - LÍNEA EN BLANCO
 - 2-4 líneas de contexto (una idea por línea, corta). Puedes usar bullets con
   el carácter "→ " o "• " al principio (NO markdown `-`/`*`).
@@ -121,8 +118,9 @@ REGLAS estrictas:
   listas con `-` o `*`. Enfatiza con MAYÚSCULAS ocasionales o saltos de línea.
 - Hashtags específicos al tema (nombre del producto/tech), no genéricos.
 - Idioma: `language` (es por defecto).
-- Anclaje al perfil: solo 1 conexión sutil cuando encaje natural (ej: "En
-  FitDash veo el mismo patrón"). Si no encaja, NO fuerces. Mejor sin.
+- Anclaje al perfil: solo una conexión cuando los hechos del perfil la sustenten.
+- No inventar cifras, citas, consecuencias, experiencia personal ni uso de herramientas.
+- Distinguir hechos de la fuente, opinion y limites de lo que se conoce.
 - Devuelve ÚNICAMENTE el JSON, sin markdown fences."""
 
 

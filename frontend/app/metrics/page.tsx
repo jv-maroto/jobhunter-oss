@@ -89,6 +89,8 @@ export default function MetricsPage() {
   const apiCosts = useApiCosts();
   const hasPaidApi = useHasPaidApi();
 
+  if (metrics.isError || jobs.isError) return <p role="alert">Metrics could not be loaded. <button className="underline" onClick={() => { void metrics.refetch(); void jobs.refetch(); }}>Retry</button></p>;
+
   if (metrics.isLoading || !metrics.data || !pipeline.data) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">

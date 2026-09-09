@@ -19,6 +19,8 @@ export interface JobsQuery {
   min_score?: number;
   source?: string;
   track?: JobTrack;
+  limit?: number;
+  offset?: number;
 }
 
 function buildSearch(q: JobsQuery): string {
@@ -28,21 +30,25 @@ function buildSearch(q: JobsQuery): string {
     sp.set("min_score", String(q.min_score));
   if (q.source) sp.set("source", q.source);
   if (q.track) sp.set("track", q.track);
+  if (q.limit !== undefined) sp.set("limit", String(q.limit));
+  if (q.offset !== undefined) sp.set("offset", String(q.offset));
   const s = sp.toString();
   return s ? `?${s}` : "";
 }
 
 export interface SwipeQuery {
-  track: JobTrack;
+  track?: JobTrack;
   remote_only?: boolean;
   min_band?: SalaryBand;
 }
 
 export function useSwipeJobs(q: SwipeQuery) {
   return useQuery<Job[]>({
+    throwOnError: false,
     queryKey: ["jobs", "swipe", q],
     queryFn: async () => {
-      const sp = new URLSearchParams({ track: q.track });
+      const sp = new URLSearchParams();
+      if (q.track) sp.set("track", q.track);
       if (q.remote_only) sp.set("remote_only", "true");
       if (q.min_band) sp.set("min_band", q.min_band);
       return await api<Job[]>(`/jobs/swipe?${sp.toString()}`);
@@ -52,8 +58,17 @@ export function useSwipeJobs(q: SwipeQuery) {
 
 type JobsResponse = Job[] | { items: Job[]; total?: number };
 
+export function useJobsPage(q: JobsQuery) {
+  return useQuery<{ items: Job[]; total: number }>({
+    throwOnError: false,
+    queryKey: ["jobs", "page", q],
+    queryFn: () => api(`/jobs${buildSearch(q)}`),
+  });
+}
+
 export function useJobs(q: JobsQuery = {}) {
   return useQuery<Job[]>({
+    throwOnError: false,
     queryKey: ["jobs", q],
     queryFn: async () => {
       const resp = await api<JobsResponse>(`/jobs${buildSearch(q)}`);
@@ -65,7 +80,9 @@ export function useJobs(q: JobsQuery = {}) {
 
 export function useJob(id: number) {
   return useQuery<Job | undefined>({
+    throwOnError: false,
     queryKey: ["job", id],
+    enabled: Number.isSafeInteger(id) && id > 0,
     queryFn: async () => {
       return api<Job>(`/jobs/${id}`);
     },
@@ -82,6 +99,8 @@ export function usePrepareApplication() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job"] });
+      qc.invalidateQueries({ queryKey: ["applications"] });
       qc.invalidateQueries({ queryKey: ["pipeline"] });
       qc.invalidateQueries({ queryKey: ["metrics"] });
     },
@@ -91,17 +110,15 @@ export function usePrepareApplication() {
 export function useUpdateJobStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      status,
-      notes,
-    }: {
+    mutationFn: async ({ id, ...body }: {
       id: number;
-      status: JobStatus;
-      notes?: string;
+      status?: JobStatus;
+      notes?: string | null;
+      next_action?: string | null;
+      next_action_at?: string | null;
+      applied_at?: string | null;
+      application_id?: number;
     }) => {
-      const body: Record<string, unknown> = { status };
-      if (typeof notes === "string") body.notes = notes;
       return api<Job>(`/jobs/${id}`, {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -109,6 +126,8 @@ export function useUpdateJobStatus() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job"] });
+      qc.invalidateQueries({ queryKey: ["applications"] });
       qc.invalidateQueries({ queryKey: ["pipeline"] });
       qc.invalidateQueries({ queryKey: ["metrics"] });
     },

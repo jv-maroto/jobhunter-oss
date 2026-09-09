@@ -11,60 +11,25 @@ import { Textarea } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { onboardingApi } from "@/lib/onboarding";
-
-// Shown only if the backend can't load cv_master.json (first-time setup).
-// Edit this through the UI below, or directly in backend/app/data/cv_master.json.
-const DEFAULT_CV: Record<string, unknown> = {
-  personal: {
-    name: "Your Full Name",
-    title: "Your Professional Title",
-    email: "you@example.com",
-    phone: "+34 600 000 000",
-    location: "City, Country",
-    github: "https://github.com/your-handle",
-    linkedin: "https://linkedin.com/in/your-handle",
-    portfolio: "https://your-handle.github.io/portfolio",
-  },
-  summary_es: "Resumen profesional en español, 2-3 frases.",
-  summary_en: "Professional summary in English, 2-3 sentences.",
-  languages: [
-    { name: "English", level: "B2" },
-  ],
-  skills: {
-    backend: ["Python", "FastAPI"],
-    frontend: ["React", "TypeScript"],
-    databases: ["PostgreSQL"],
-    devops: ["Docker"],
-  },
-  search_preferences: {
-    salary_min_eur: 30000,
-    salary_max_eur: 50000,
-    remote_only: false,
-    preferred_countries: ["ES", "EU", "Remote"],
-  },
-};
+import { JOB_TRACK_LABELS, type JobTrack } from "@/lib/types";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
-  const [cv, setCv] = React.useState<string>(
-    JSON.stringify(DEFAULT_CV, null, 2),
-  );
+  const [cv, setCv] = React.useState("");
+  const [loadError, setLoadError] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
+  const [applicationDocuments, setApplicationDocuments] = React.useState<unknown>(null);
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const remote = await api<Record<string, unknown>>("/settings/cv_master");
-        setCv(JSON.stringify(remote, null, 2));
-      } catch {
-        // backend offline — usamos default
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
+  const loadCv = React.useCallback(() => api<Record<string, unknown>>("/settings/cv_master").then((remote) => {
+    setCv(JSON.stringify(remote, null, 2));
+    setApplicationDocuments(remote.application_documents);
+    setLoaded(true);
+  }).catch(() => setLoadError(true)), []);
+  React.useEffect(() => { void loadCv(); }, [loadCv]);
 
   const saveCv = async () => {
+    if (!loaded || saving) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(cv);
@@ -72,15 +37,17 @@ export default function SettingsPage() {
       toast.error("CV JSON inválido", { description: String(e) });
       return;
     }
+    setSaving(true);
     try {
       await api("/settings/cv_master", {
         method: "PUT",
         body: JSON.stringify(parsed),
       });
+      setApplicationDocuments((parsed as Record<string, unknown>).application_documents);
       toast.success("cv_master.json guardado");
     } catch {
-      toast.warning("Backend offline — cambios no persistidos");
-    }
+      toast.error("No se pudo guardar. Se conserva tu edición para reintentarlo.");
+    } finally { setSaving(false); }
   };
 
   return (
@@ -119,6 +86,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <Switch
+              aria-label="Dark mode"
               checked={theme === "dark"}
               onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
             />
@@ -137,6 +105,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <ApplicationCvCard configuration={applicationDocuments} />
+
       <Card variant="glass" className="lg:col-span-2">
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
@@ -145,17 +115,20 @@ export default function SettingsPage() {
               cv_master.json
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Fuente de verdad para generar CVs personalizados con Claude.
+              Fuente de verdad para generar CVs personalizados.
               {loaded ? "" : " · Cargando…"}
             </p>
           </div>
-          <Button onClick={saveCv} shimmer>
+          <Button onClick={saveCv} disabled={!loaded || saving} shimmer>
             <Save />
             Save
           </Button>
         </CardHeader>
         <CardContent>
+          {loadError && <p role="alert" className="mb-3 text-sm text-rose-400">No se pudo cargar el perfil. <button className="underline" onClick={() => { setLoadError(false); void loadCv(); }}>Reintentar</button></p>}
           <Textarea
+            aria-label="Perfil completo en JSON"
+            disabled={!loaded || saving}
             value={cv}
             onChange={(e) => setCv(e.target.value)}
             rows={24}
@@ -167,6 +140,37 @@ export default function SettingsPage() {
 
       <RedoOnboardingCard />
     </div>
+  );
+}
+
+function ApplicationCvCard({ configuration }: { configuration: unknown }) {
+  if (!configuration || typeof configuration !== "object") return null;
+  const config = configuration as Record<string, unknown>;
+  if (config.mode !== "existing") return null;
+  const mappings = config.cv_by_track && typeof config.cv_by_track === "object"
+    ? Object.entries(config.cv_by_track).flatMap(([track, value]) => {
+        if (!value || typeof value !== "object" || !("filename" in value) || typeof value.filename !== "string") return [];
+        const filename = value.filename.split(/[\\/]/).pop();
+        return filename ? [{ track, filename }] : [];
+      }) : [];
+
+  return (
+    <Card variant="glass" className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle>Application CVs</CardTitle>
+        <p className="text-sm text-muted-foreground">Existing PDFs, kept unchanged.</p>
+      </CardHeader>
+      <CardContent>
+        <dl className="space-y-2 text-sm">
+          {mappings.map(({ track, filename }) => (
+            <div key={track} className="grid gap-1 sm:grid-cols-2 sm:gap-4">
+              <dt>{JOB_TRACK_LABELS[track as JobTrack] ?? track.replaceAll("_", " ")}</dt>
+              <dd className="break-words text-muted-foreground">{filename}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -207,7 +211,7 @@ function RedoOnboardingCard() {
         <p className="text-[11px] text-muted-foreground mt-1">
           Vuelve a lanzar el asistente para reconstruir tu perfil desde el CV,
           GitHub o LinkedIn. Tu <code className="mono">cv_master.json</code> actual
-          se guarda como copia de seguridad antes de reiniciar.
+          se conserva y se utiliza como punto de partida del nuevo borrador.
         </p>
       </CardHeader>
       <CardContent>

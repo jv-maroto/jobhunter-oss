@@ -47,6 +47,8 @@ def build_tier_map(mode: str, cloud_provider: str) -> dict[str, list[str]]:
     tiers = ("scoring", "generation", "messaging")
     if mode == "off":
         return {t: [] for t in tiers}
+    if mode == "codex":
+        return {t: ["codex"] for t in tiers}
     if mode == "local":
         return {t: ["ollama-qwen"] for t in tiers}
     # cloud
@@ -185,6 +187,7 @@ def build_default_router(cost_tracker: Any | None = None) -> LLMRouter:
     """
     from app.ai import keystore
     from app.ai.providers.anthropic_provider import AnthropicProvider
+    from app.ai.providers.codex_provider import CodexProvider
     from app.ai.providers.gemini_provider import GeminiProvider
     from app.ai.providers.ollama_provider import OllamaProvider
     from app.ai.providers.openai_provider import OpenAIProvider
@@ -225,6 +228,7 @@ def build_default_router(cost_tracker: Any | None = None) -> LLMRouter:
     )
 
     providers: dict[str, LLMProvider] = {
+        "codex": CodexProvider(),
         "anthropic-haiku": anth_haiku,
         "anthropic-sonnet": anth_sonnet,
         "openai-mini": openai_mini,

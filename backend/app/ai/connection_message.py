@@ -25,23 +25,22 @@ REGLAS:
 - MAXIMO 280 caracteres (limite LinkedIn ~300).
 - Mencionar algo concreto del target (rol, empresa, area).
 - Mencionar 1 punto del perfil propio que sea relevante.
+- Usar solo hechos del perfil; mantener la distincion entre empleo y proyectos academicos.
+- No inventar tecnologias, permisos de trabajo, relaciones previas ni haber usado un producto.
 - Tono humano, NO copy-paste corporativo.
 - Sin "Hope you're doing well" ni similares.
 - Devolver UNICAMENTE el texto, sin comillas, sin firma."""
 
 
 def _fallback_message(target: dict[str, Any], owner: dict[str, Any], language: str) -> str:
-    company = target.get("company", "")
-    role = target.get("headline", "")
+    focus = str((owner.get("personal") or {}).get("title") or "").strip()
+    target_name = str(target.get("full_name") or target.get("name") or "").split()
+    first_name = f" {target_name[0]}" if target_name else ""
     if language == "es":
-        return (
-            f"Hola, vi tu perfil ({role}) en {company}. Soy ingeniero Python+AI con proyectos "
-            "en FastAPI y LLMs locales. Me encantaria conectar."
-        )[:280]
-    return (
-        f"Hi, I saw your profile ({role}) at {company}. I'm a Python + AI engineer with FastAPI and "
-        "local LLM projects. Would love to connect."
-    )[:280]
+        detail = f" Mi enfoque es {focus[:130]}." if focus else ""
+        return f"Hola{first_name}.{detail} Me gustaria conectar y conocer mas sobre tu trabajo."[:280]
+    detail = f" My focus is {focus[:130]}." if focus else ""
+    return f"Hi{first_name}.{detail} I'd like to connect and learn more about your work."[:280]
 
 
 def generate_connection_message(

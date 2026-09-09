@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api import (
     ai_settings,
+    applications,
     apply,
     comments,
     ext,
@@ -135,6 +136,7 @@ app.add_middleware(
 )
 
 app.include_router(jobs.router)
+app.include_router(applications.router)
 app.include_router(persons.router)
 app.include_router(posts.router)
 app.include_router(metrics.router)

@@ -22,6 +22,7 @@ busqueda efectivas para portales de empleo:
 - sinonimos y variantes del rol,
 - combinaciones rol + skill principal,
 - traducciones al idioma de las regiones objetivo (ES/EN/DE/FR/SE...) cuando tenga sentido.
+No anadas profesiones ajenas a los roles objetivo. No anadas remoto a menos que remote_only sea true.
 Queries cortas (2-5 palabras), sin comillas, sin operadores booleanos. Devuelve UNICAMENTE
 este JSON: {"queries": ["...", "..."]}"""
 
@@ -70,6 +71,7 @@ def ai_expand_queries(
             "skills": skills[:20],
             "regions": regions,
             "base_queries": base,
+            "remote_only": bool(prefs.get("remote_only")),
         }
         raw = complete(
             tier="scoring",

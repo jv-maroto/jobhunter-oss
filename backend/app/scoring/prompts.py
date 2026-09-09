@@ -14,6 +14,8 @@ import re
 from datetime import date
 from typing import Any
 
+from app.scoring.compatibility import salary_preferences
+
 _OUTPUT_CONTRACT = """You are an expert job-offer evaluator. Your only task is to compare a candidate
 CV (JSON) with a job posting and return ONE JSON object with this exact shape:
 
@@ -25,29 +27,36 @@ CV (JSON) with a job posting and return ONE JSON object with this exact shape:
   - 35-54: weak fit — stack barely overlaps, or clearly wrong role family.
   - <35: hard reject — different discipline, visa blocker, salary far below floor.
 
-  CALIBRATION RULES (very important — the earlier version of this prompt was
-  scoring too conservatively):
-  * START at 70 for any posting that mentions the candidate's core stack AND
-    matches at least one target role. Then subtract for concrete, named issues.
-  * When `missing_skills` is empty AND the posting matches a target role, the
-    score MUST be at least 70 unless there is an explicit deal-breaker
-    (visa, salary far below floor, seniority band off by 2+ years).
-  * When the posting is INCOMPLETE (short description, no stack listed) but the
-    title/role is on-target, score 55-65 with rejection_reason noting the gap.
-    Do NOT default to 35 out of caution.
-  * A location/seniority/salary mismatch is NOT a "missing skill". If those are
-    the only issues, keep `missing_skills` empty and put the reason in
-    `rejection_reason` (even for scores >= 30 in these cases — override the rule
-    below).
-  * If none of the above triggers apply and you're between two scores, pick the
-    HIGHER one. The next filter (min_score threshold) can drop it later.
+  EVIDENCE RULES:
+  * Score only documented overlap. Empty missing_skills is not evidence of a strong fit.
+  * Incomplete postings have unconfirmed requirements; do not label them a strong fit.
+  * Target roles and target seniority describe interests, not proven experience.
+  * Distinguish professional delivery, academic projects, and personal projects.
+    A degree project in ML does not establish professional production ML experience.
+    Skill-group names and each project's evidence/context qualify skill depth.
+  * Required language proficiency matters: currently learning/basic German does not
+    satisfy fluent/C1 German. Do not assume fluency from a language name alone.
+  * Distinguish mandatory qualifications, preferences, alternatives and unknown evidence.
+    A lower degree does not satisfy a required higher degree. "Or equivalent experience"
+    needs documented equivalent evidence; it is not automatically a rejection or a match.
+    Domain-specific years must come from dated professional roles in that domain, without
+    double-counting overlapping dates. Skill keywords do not establish production experience.
+    Missing evidence is unknown, not a proven absence. Do not score unverified mandatory
+    qualifications as a strong fit. Scores describe fit, not interview or hiring probability.
+  * Record salary, geography, seniority, employment and language issues in
+    rejection_reason; they are not missing technical skills.
 
 - salary_in_range: if the posting mentions a salary, true when it is at or above the
-  candidate's minimum (see preferences). null if no salary is mentioned.
+  candidate's minimum (see preferences). null if amount, currency or pay period is missing
+  or if comparison requires an exchange rate or assumed working hours.
 - remote_compatible: true if the posting's work mode (remote / hybrid / onsite + location)
-  is compatible with the candidate's preferences below.
+  is compatible with the candidate's preferences below; null if eligibility is unknown.
 - location_compatible: true if the posting's location is inside the candidate's target
-  regions, or the job is remote and open to them.
+  regions, or remote eligibility explicitly includes a target country. Remote alone is
+  insufficient: return null for unspecified eligibility. EU/EEA-only is not Switzerland.
+- employment_compatible: true only if explicit contract type matches a target employment type;
+  null when unknown. Full-time does not establish a permanent contract.
+- seniority_compatible: true if explicit level matches the target; null if unstated.
 - key_matches: 3-6 concrete overlaps between CV and posting (skills, projects, experience).
 - missing_skills: 0-5 skills the posting requires that the candidate clearly lacks.
   Location, seniority, salary and visa are NOT skills — do not list them here.
@@ -115,7 +124,7 @@ def infer_seniority(cv: dict[str, Any]) -> str:
     return "lead"
 
 
-def _flatten_skills(cv: dict[str, Any], limit: int = 12) -> list[str]:
+def _flatten_skills(cv: dict[str, Any], limit: int | None = None) -> list[str]:
     out: list[str] = []
     skills = cv.get("skills") or {}
     if isinstance(skills, dict):
@@ -131,7 +140,7 @@ def _flatten_skills(cv: dict[str, Any], limit: int = 12) -> list[str]:
             continue
         seen.add(s.lower())
         uniq.append(s)
-    return uniq[:limit]
+    return uniq if limit is None else uniq[:limit]
 
 
 def _target_regions(prefs: dict[str, Any]) -> list[str]:
@@ -143,6 +152,7 @@ def _target_regions(prefs: dict[str, Any]) -> list[str]:
         preset = str(prefs["region_preset"])
         raw = {
             "only_spain": ["ES"],
+            "only_switzerland": ["CH"],
             "all_europe": ["EU"],
             "remote_worldwide": ["REMOTE"],
         }.get(preset, [preset])
@@ -159,17 +169,21 @@ def build_scoring_system(cv_master: dict[str, Any] | None) -> str:
 
     lines: list[str] = []
 
-    seniority = infer_seniority(cv)
-    lines.append(
-        f"- The candidate is {_SENIORITY_LABELS[seniority]}. A gap of 1 year in "
-        "either direction is fine (still score high). Only penalise when the "
-        "posting explicitly requires a band ≥ 2 years above the candidate."
-    )
+    explicit_seniority = str(prefs.get("seniority") or "").lower()
+    if explicit_seniority in _SENIORITY_LABELS:
+        lines.append(
+            f"- Target seniority: {_SENIORITY_LABELS[explicit_seniority]}. This is a search preference, "
+            "not a verified count of professional years. Judge relevant professional experience "
+            "from dated roles in the matching domain; do not add unrelated occupations or academic projects."
+        )
+    else:
+        lines.append("- Target seniority is unstated. Do not infer technical years from unrelated occupations or academic projects.")
 
-    salary_min = prefs.get("salary_min_eur")
+    salary_min, _, salary_currency = salary_preferences(prefs)
     if salary_min:
         lines.append(
-            f"- Minimum acceptable salary: {int(salary_min)} EUR/year (or equivalent). "
+            f"- Minimum acceptable salary: {int(salary_min)} {salary_currency or 'currency unspecified'}/year. "
+            "Compare only stated annual amounts in the same currency. Never invent an FX rate or annualize with assumed hours/payments. "
             "If the posting states a lower salary, subtract at most 10 points and put the "
             "issue in rejection_reason — do not drop the score to <40 just for salary."
         )
@@ -179,9 +193,8 @@ def build_scoring_system(cv_master: dict[str, Any] | None) -> str:
     residence = prefs.get("residence_country") or personal.get("location")
     if remote_only:
         lines.append(
-            "- The candidate wants REMOTE work only: onsite/hybrid postings incompatible "
-            "with the candidate's location subtract ~15 points (not all points) and go "
-            "into rejection_reason — the candidate may still apply if the role is strong."
+            "- The candidate wants REMOTE work only: onsite/hybrid postings are incompatible. "
+            "Respect geographic hiring restrictions even when the job is remote."
         )
     if regions:
         pretty = ", ".join("remote worldwide" if r == "REMOTE" else r for r in regions)
@@ -190,12 +203,16 @@ def build_scoring_system(cv_master: dict[str, Any] | None) -> str:
         lines.append(f"- The candidate is based in: {residence}.")
     if prefs.get("willing_to_relocate"):
         lines.append("- Open to relocation.")
+    lines.append("- Assess work authorization for each posting's hiring country using explicit profile evidence. Authorization for another country or region and relocation interest do not establish eligibility; unknown permits need review.")
     if prefs.get("work_authorization_eu") is False:
         lines.append("- No EU work authorization: penalise postings that require it.")
 
     skills = _flatten_skills(cv)
     if skills:
         lines.append(f"- Reward postings built around the candidate's stack: {', '.join(skills)}.")
+
+    if prefs.get("employment_types"):
+        lines.append(f"- Target employment types: {', '.join(prefs['employment_types'])}. Only explicit posting evidence establishes contract type; unknown stays null.")
 
     roles = [str(r) for r in (prefs.get("roles") or []) if str(r).strip()]
     if roles:
@@ -242,7 +259,9 @@ def build_scoring_user_prompt(cv_master: dict, job: dict) -> str:
             "salary_min": job.get("salary_min"),
             "salary_max": job.get("salary_max"),
             "currency": job.get("currency"),
-            "description": (job.get("description", "") or "")[:6000],
+            "salary_period": job.get("salary_period"),
+            "employment_type": job.get("employment_type"),
+            "description": job.get("description", "") or "",
         },
         ensure_ascii=False,
     )

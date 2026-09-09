@@ -65,7 +65,7 @@ class AdzunaScraper(BaseScraper):
             if mapped:
                 self._regions = mapped
         if queries:
-            self._queries = queries[:4]  # acotamos: 1 llamada por (pais, query)
+            self._queries = list(queries)
 
     async def _search(
         self, client: httpx.AsyncClient, country: str, query: str
@@ -117,7 +117,8 @@ class AdzunaScraper(BaseScraper):
                     remote="remote" in blob or "teletrabajo" in blob,
                     salary_min=e.get("salary_min"),
                     salary_max=e.get("salary_max"),
-                    currency="EUR" if country != "gb" else "GBP",
+                    currency={"gb": "GBP", "pl": "PLN", "se": "SEK"}.get(country, "EUR"),
+                    salary_period="year",
                     posted_at=posted_dt,
                     description=desc[:8000],
                     tags=[],
