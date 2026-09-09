@@ -6,6 +6,14 @@ on:
   pull_request:
 
 jobs:
+  privacy:
+    name: Public source privacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/test-public-source.py
+      - run: python3 scripts/check-public-source.py
+
   backend:
     name: Backend (Python 3.12)
     runs-on: ubuntu-latest
@@ -37,6 +45,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm run test:unit
       - run: npm run build
 
   extension:
@@ -54,5 +63,4 @@ jobs:
           cache-dependency-path: linkedin-ext/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
-      - run: node --test tests/profile-import.test.mjs
+      - run: npm test
