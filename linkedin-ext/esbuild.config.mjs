@@ -21,7 +21,7 @@ const sharedOpts = {
   entryPoints: entries,
   bundle: true,
   outdir: 'dist',
-  format: 'esm',
+  format: 'iife',
   target: 'chrome120',
   outbase: 'src',
   sourcemap: watch ? 'inline' : false,

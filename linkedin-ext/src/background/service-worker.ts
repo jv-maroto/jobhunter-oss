@@ -44,6 +44,22 @@ chrome.runtime.onMessage.addListener(
   (msg: RuntimeMessage, _sender, sendResponse) => {
     (async () => {
       try {
+        if (msg.type === "IMPORT_LINKEDIN_PROFILE") {
+          const senderUrl = new URL(_sender.url || "about:blank");
+          if (
+            _sender.id !== chrome.runtime.id
+            || !["https://linkedin.com", "https://www.linkedin.com"].includes(senderUrl.origin)
+            || !/^\/in\/[^/]+\/?$/.test(senderUrl.pathname)
+            || typeof msg.payload?.name !== "string" || !msg.payload.name.trim()
+            || msg.payload.profile_url !== senderUrl.origin + senderUrl.pathname
+          ) {
+            sendResponse({ success: false, error: "Perfil de LinkedIn no válido." });
+            return;
+          }
+          const data = await api.importLinkedinProfile(msg.payload);
+          sendResponse({ success: true, data } satisfies RuntimeResponse);
+          return;
+        }
         if (msg.type === "PING_STATUS") {
           const settings = await getSettings();
           const ok = await api.health();

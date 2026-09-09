@@ -132,6 +132,13 @@ export type RuntimeMessage =
   | { type: "PING_STATUS" }
   | { type: "FORCE_POLL" }
   | { type: "GET_PROFILE" }
+  | { type: "IMPORT_LINKEDIN_PROFILE"; payload: {
+      name: string;
+      headline?: string;
+      summary?: string;
+      profile_url: string;
+      skills?: string[];
+    } }
   | { type: "GENERATE_COMMENT_FOR_POST"; payload?: unknown }
   | { type: "SEND_FEED_POSTS"; posts?: unknown[] }
   | { type: "DEBUG_SCAN_FEED" };

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Profile import browser check</title>
+<body>
+<div id="fixture"></div>
+<pre id="result">Running browser check…</pre>
+<script type="module">
+const params = new URLSearchParams(location.search);
+const layout = params.get('layout') || 'current';
+const spanish = params.get('lang') === 'es';
+const fixture = document.getElementById('fixture');
+const result = document.getElementById('result');
+const messages = [];
+
+fixture.innerHTML = layout === 'legacy' ? `
+  <h1>Test Person</h1>
+  <div class="text-body-medium break-words">Data Engineer</div>
+  <section><div id="about"></div><div class="inline-show-more-text">
+    <span aria-hidden="true">Builds data systems.</span>
+  </div></section>
+  <section><div id="skills"></div>
+    <a data-field="skill_card_skill_topic"><span aria-hidden="true">SQL</span></a>
+    <a data-field="skill_card_skill_topic"><span aria-hidden="true">Python</span></a>
+  </section>
+` : `
+  <div>
+    <div><div><div>
+      <a componentkey="ProfileVerificationTriggerRef-test-person"><div><h2>Test Person</h2></div></a>
+    </div></div></div>
+    <p>Data Engineer</p><p>Example University</p>
+  </div>
+  <div>
+    <div><h2>${spanish ? 'Acerca de' : 'About'}</h2></div>
+    <div><p><span data-testid="expandable-text-box">Builds data systems.<br>Works with teams.<button>… more</button></span></p>
+      <div><p>${spanish ? 'Principales aptitudes' : 'Top skills'}</p><p>SQL • Python</p></div>
+    </div>
+  </div>
+`;
+
+history.replaceState(null, '', '/in/test-person/?trk=fixture#about');
+window.chrome = { runtime: {
+  onMessage: { addListener() {} },
+  async sendMessage(message) { messages.push(message); return { success: true }; },
+} };
+window.fetch = () => { throw new Error('Content script must not fetch the backend'); };
+const globals = Object.keys(window);
+function check(condition, message) { if (!condition) throw new Error(message); }
+
+try {
+  for (const name of ['linkedin-profile', 'linkedin-profile-import', 'linkedin-post-helper']) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `/dist/content/${name}.js`;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Could not load ${name}; run npm run build first`));
+      document.body.appendChild(script);
+    });
+  }
+  check(Object.keys(window).every(key => globals.includes(key)), 'Bundle leaked globals');
+  check(messages.length === 0, 'Import happened without a user action');
+  document.getElementById('jobhunter-li-import').click();
+  await new Promise(requestAnimationFrame);
+  check(messages.length === 1, 'Expected one background message');
+  check(messages[0].type === 'IMPORT_LINKEDIN_PROFILE', 'Wrong background operation');
+  const data = messages[0].payload;
+  check(data.name === 'Test Person', 'Wrong name');
+  check(data.headline === 'Data Engineer', 'Wrong headline');
+  check(data.summary === (layout === 'legacy' ? 'Builds data systems.' : 'Builds data systems.\nWorks with teams.'), 'Wrong About text');
+  check(JSON.stringify(data.skills) === '["SQL","Python"]', 'Wrong skills');
+  check(data.profile_url === location.origin + '/in/test-person/', 'Query or fragment leaked into profile URL');
+  check(document.getElementById('jobhunter-li-import').textContent.includes('Importado'), 'Success message missing');
+  result.textContent = `PASS: ${layout}, ${spanish ? 'Spanish' : 'English'} — name, headline, About, skills, URL, background message, script isolation`;
+} catch (error) {
+  result.textContent = `FAIL: ${error.message}`;
+  console.error(error);
+}
+</script>
+</body>
+</html>
