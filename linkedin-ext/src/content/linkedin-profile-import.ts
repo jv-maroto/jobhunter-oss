@@ -6,7 +6,7 @@
  * (POST /onboarding/linkedin/from-extension). No scrapea perfiles ajenos en masa:
  * es tu propio perfil, en tu navegador. Tu revisas todo en el wizard.
  */
-import { api } from "../lib/api";
+import type { RuntimeResponse } from "../lib/types";
 
 const BTN_ID = "jobhunter-li-import";
 
@@ -16,8 +16,12 @@ function txt(sel: string): string {
 }
 
 function scrapeProfile() {
-  const name = txt("h1");
-  const headline = txt(".text-body-medium.break-words") || txt(".pv-text-details__left-panel .text-body-medium");
+  const verification = document.querySelector('a[componentkey^="ProfileVerificationTriggerRef-"]');
+  const name = txt("h1") || verification?.querySelector("h2")?.textContent?.trim() || "";
+  const topCard = verification?.parentElement?.parentElement?.parentElement?.parentElement;
+  const headline = txt(".text-body-medium.break-words")
+    || txt(".pv-text-details__left-panel .text-body-medium")
+    || topCard?.querySelector(":scope > p")?.textContent?.trim() || "";
 
   // "Acerca de": la seccion con anchor #about, tomamos el span de texto visible.
   let summary = "";
@@ -26,6 +30,17 @@ function scrapeProfile() {
     const section = about.closest("section");
     const span = section?.querySelector(".inline-show-more-text span[aria-hidden='true'], .display-flex span[aria-hidden='true']");
     summary = (span?.textContent || section?.textContent || "").trim().slice(0, 4000);
+  }
+  const aboutHeading = [...document.querySelectorAll("h2")].find(
+    (heading) => ["About", "Acerca de"].includes(heading.textContent?.trim() || "")
+  );
+  const aboutCard = aboutHeading?.parentElement?.parentElement;
+  if (!summary) {
+    const text = aboutCard?.querySelector('[data-testid="expandable-text-box"]')
+      ?.cloneNode(true) as Element | undefined;
+    text?.querySelectorAll("button").forEach((button) => button.remove());
+    text?.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+    summary = text?.textContent?.trim().slice(0, 4000) || "";
   }
 
   // Skills: spans dentro de la seccion #skills.
@@ -36,12 +51,19 @@ function scrapeProfile() {
     const s = (n.textContent || "").trim();
     if (s && s.length < 60 && !skills.includes(s)) skills.push(s);
   });
+  if (!skills.length) {
+    const label = [...(aboutCard?.querySelectorAll("p") || [])].find(
+      (p) => ["Top skills", "Principales aptitudes"].includes(p.textContent?.trim() || "")
+    );
+    skills.push(...(label?.nextElementSibling?.textContent || "").split("•")
+      .map((s) => s.trim()).filter((s) => s.length > 0 && s.length < 60));
+  }
 
   return {
     name,
     headline,
     summary,
-    profile_url: location.href.split("?")[0],
+    profile_url: location.origin + location.pathname,
     skills: skills.slice(0, 30)
   };
 }
@@ -62,14 +84,17 @@ function buildButton(): void {
     btn.textContent = "Importando…";
     try {
       const payload = scrapeProfile();
-      if (!payload.name) throw new Error("sin nombre");
-      await api.importLinkedinProfile(payload);
+      if (!payload.name) throw new Error("No se encontró el nombre. Abre tu perfil y recarga LinkedIn.");
+      const response: RuntimeResponse = await chrome.runtime.sendMessage({
+        type: "IMPORT_LINKEDIN_PROFILE", payload
+      });
+      if (!response?.success) throw new Error(response?.error || "Recarga la extensión y LinkedIn.");
       btn.textContent = "✓ Importado — vuelve al wizard";
       btn.style.color = "#3fb950";
       btn.style.borderColor = "#23863655";
-    } catch {
+    } catch (error) {
       btn.disabled = false;
-      btn.textContent = "Error (¿backend_url en opciones?)";
+      btn.textContent = `Error: ${error instanceof Error ? error.message.slice(0, 180) : "Importación fallida"}`;
     }
   };
   document.body.appendChild(btn);

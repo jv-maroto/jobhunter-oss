@@ -30,6 +30,34 @@ npm run typecheck     # solo tipos
 
 El build copia `manifest.json`, HTML, CSS e iconos a `dist/`.
 
+## Comprobar la importación
+
+```bash
+npm run typecheck
+npm run build
+node --test tests/profile-import.test.mjs
+```
+
+Los tests ejecutan los bundles generados con DOM y APIs de Chrome simulados.
+Cubren aislamiento entre scripts, mensajes al background, validación del
+remitente, URLs con query/fragmento y errores sin falso éxito. CI los ejecuta
+después del build.
+
+Para comprobar los selectores con un DOM real, sirve esta carpeta:
+
+```bash
+python -m http.server 8765 --bind 127.0.0.1
+```
+
+Abre `http://127.0.0.1:8765/tests/profile-import.html` con cada variante:
+`?layout=current`, `?layout=current&lang=es` y `?layout=legacy`. Cada página debe
+mostrar `PASS`. Usa perfiles sintéticos y simula la mensajería de Chrome; no
+contacta con LinkedIn ni con el backend.
+
+Para verificar la extensión instalada, recárgala, refresca tu propio perfil de
+LinkedIn y pulsa **Importar a JobHunter**. Debe aparecer **Importado — vuelve al
+wizard**; revisa después el perfil importado en el onboarding.
+
 ## Cargar la extensión en Chrome
 
 1. Abre `chrome://extensions/`.
