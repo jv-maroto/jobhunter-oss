@@ -6,8 +6,8 @@
 #   docker compose down        # stop
 #   docker compose logs -f     # follow logs
 #
-# Data is persisted to ./backend/data and ./backend/jobhunter.db on the host
-# so the DB survives container restarts and rebuilds.
+# Data is persisted under ./backend/data/ on the host so the DB, generated
+# PDFs and post images survive container restarts and rebuilds.
 
 services:
   backend:
@@ -21,18 +21,22 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      # SQLite lives INSIDE /app/data next to the other generated files so
+      # the whole state is a single directory mount (see volumes below).
+      # This avoids the classic "docker created an empty directory instead
+      # of my db file on first run" trap.
       - DATABASE_URL=sqlite:////app/data/jobhunter.db
       - DATA_DIR=/app/data
       - CV_MASTER_PATH=/app/app/data/cv_master.json
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000
     volumes:
-      # DB + generated PDFs + trending post images persist on host
-      - ./backend/jobhunter.db:/app/jobhunter.db
+      # Single directory mount — everything the backend persists (SQLite DB,
+      # generated CVs, post images, references) ends up under ./backend/data
+      # on the host. No file-mounted DB, so a fresh clone Just Works™.
       - ./backend/data:/app/data
-      # Your personal CV master (edit on host, container sees it live)
+      # Your personal CV master (edit on host, container sees it live). The
+      # onboarding wizard creates this file on first run.
       - ./backend/app/data/cv_master.json:/app/app/data/cv_master.json:ro
-      # CV export folder — hooked at generation time to write here
-      - ./cvs-out:/root/Documentos/Proyectos/jobhunter/cvs-out
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
@@ -46,18 +50,26 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: dev
+      # Override at build time when accessing the dashboard from a host other
+      # than the machine running docker (e.g. WSL2 with a distinct IP, a LAN
+      # peer or a VPN). Example:
+      #   NEXT_PUBLIC_API_URL=http://192.168.1.42:8000 docker compose up --build
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: jobhunter-frontend
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # NEXT_PUBLIC_* is baked into the client bundle at build time, but Next
+      # also reads it in dev mode from process.env. Passing it here again
+      # covers `next dev` on the mounted volume.
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NODE_ENV=development
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
