@@ -79,6 +79,7 @@ def init_db() -> None:
     from app.models import (  # noqa: F401
         answer_cache,
         api_call,
+        app_setting,
         application,
         apply_queue,
         company,

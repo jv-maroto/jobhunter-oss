@@ -17,6 +17,7 @@ from app.api import (
     applications,
     apply,
     comments,
+    cv_storage_settings,
     ext,
     integrations,
     jobs,
@@ -144,6 +145,7 @@ app.include_router(ext.bootstrap_router)
 app.include_router(ext.router)
 app.include_router(comments.router)
 app.include_router(settings_api.router)
+app.include_router(cv_storage_settings.router)
 app.include_router(onboarding.router)
 app.include_router(search_profile.router)
 app.include_router(integrations.router)
