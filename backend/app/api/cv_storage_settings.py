@@ -19,12 +19,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import app_settings as svc
 from app.config import settings
 from app.db import get_db
 from app.models.application import Application
 from app.models.job import Job
-from app import app_settings as svc
-
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])

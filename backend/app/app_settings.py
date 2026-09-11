@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.models.app_setting import AppSetting
 
-
 # ---------------------------------------------------------------------------
 # CV storage keys
 # ---------------------------------------------------------------------------
