@@ -60,6 +60,40 @@ def _company_slug(name: str | None, job_id: int) -> str:
     return str(job_id)
 
 
+def _company_folder_name(
+    name: str | None, job_id: int, db: Session | None = None
+) -> str:
+    """Folder name for `data/applications/<here>/`.
+
+    Delegates the actual naming to the user-configurable scheme stored in
+    AppSetting (see /settings/cv-storage). Falls back to the default
+    "company-id" scheme if no DB session is available (e.g. one-off scripts).
+    """
+    from datetime import date as _d
+
+    slug = _company_slug(name, job_id)
+    if db is None:
+        # No DB → use the safe default without hitting AppSetting
+        return f"{slug}-{job_id}" if slug != str(job_id) else f"job-{job_id}"
+
+    from app import app_settings as _svc
+    scheme = _svc.cv_naming_scheme(db)
+    return _svc.build_folder_name(scheme, slug, job_id, _d.today().isoformat())
+
+
+def _applications_root(db: Session | None) -> Path:
+    """Resolves the base folder where per-application directories live.
+
+    Uses the user-configured runtime setting if present, otherwise the
+    default `data/applications` from settings.data_path.
+    """
+    fallback = (settings.data_path / "applications").resolve()
+    if db is None:
+        return fallback
+    from app import app_settings as _svc
+    return _svc.cv_root_dir(db, fallback=fallback)
+
+
 @router.get("", response_model=JobsListOut)
 def list_jobs(
     status: str | None = Query(default=None),
@@ -280,13 +314,19 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
     db.delete(job)
     db.commit()
 
-    # Best-effort file cleanup — never fails the request
+    # Best-effort file cleanup — never fails the request. Try the current
+    # naming scheme + a few legacy fallbacks so old data is cleaned too.
     try:
-        # Legacy company folders may contain other jobs' documents.
-        app_dir = settings.data_path / "applications" / f"job-{job_id}"
-        if app_dir.exists():
-            import shutil
-            shutil.rmtree(app_dir, ignore_errors=True)
+        import shutil
+        root = _applications_root(db)
+        candidates = [
+            root / _company_folder_name(job.company, job_id, db=db),
+            root / f"job-{job_id}",
+            root / str(job_id),
+        ]
+        for app_dir in candidates:
+            if app_dir.exists():
+                shutil.rmtree(app_dir, ignore_errors=True)
     except Exception as e:  # noqa: BLE001
         logger.warning("Failed to remove application folder for job %s: %s", job_id, e)
 
@@ -322,7 +362,14 @@ async def prepare_application(
         raise HTTPException(status_code=500, detail="cv_master.json no disponible")
     preparation_track = current_job_metadata(job, cv_master)["track"]
 
-    out_dir = settings.data_path / "applications" / f"job-{job.id}" / uuid4().hex
+    # Folder named by the user-configured scheme (see /settings/cv-storage).
+    # Job id is included by default to prevent collisions when several
+    # roles come from the same employer.
+    out_dir = (
+        _applications_root(db)
+        / _company_folder_name(job.company, job.id, db=db)
+        / uuid4().hex
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     job_dict = {

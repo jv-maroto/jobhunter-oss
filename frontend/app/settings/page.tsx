@@ -138,8 +138,194 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <CvStorageCard />
+
       <RedoOnboardingCard />
     </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// CV storage — pick folder + naming scheme
+// ---------------------------------------------------------------------------
+
+type NamingOption = { key: string; label: string; example: string };
+type CvStorage = {
+  root_dir: string;
+  naming_scheme: string;
+  default_root_dir: string;
+  options: NamingOption[];
+};
+
+function CvStorageCard() {
+  const [config, setConfig] = React.useState<CvStorage | null>(null);
+  const [rootDir, setRootDir] = React.useState("");
+  const [naming, setNaming] = React.useState("");
+  const [renameExisting, setRenameExisting] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const cfg = await api<CvStorage>("/settings/cv-storage");
+      setConfig(cfg);
+      setRootDir(cfg.root_dir);
+      setNaming(cfg.naming_scheme);
+    } catch (e) {
+      toast.error("No se pudo cargar la configuración", {
+        description: String(e).slice(0, 140),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async () => {
+    if (!config) return;
+    setSaving(true);
+    try {
+      const res = await api<{
+        root_dir: string;
+        naming_scheme: string;
+        renamed: number;
+        warnings: string[];
+      }>("/settings/cv-storage", {
+        method: "PUT",
+        body: JSON.stringify({
+          root_dir: rootDir,
+          naming_scheme: naming,
+          rename_existing: renameExisting,
+        }),
+      });
+      const parts = [`Carpeta: ${res.root_dir}`, `Formato: ${res.naming_scheme}`];
+      if (renameExisting) parts.push(`Renombradas: ${res.renamed}`);
+      toast.success("Guardado", {
+        description: parts.join(" · "),
+      });
+      if (res.warnings && res.warnings.length) {
+        toast.warning(`${res.warnings.length} avisos`, {
+          description: res.warnings.slice(0, 3).join("\n"),
+        });
+      }
+      await load();
+    } catch (e) {
+      toast.error("No se pudo guardar", { description: String(e).slice(0, 140) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty =
+    config && (rootDir !== config.root_dir || naming !== config.naming_scheme);
+
+  return (
+    <Card variant="glass" className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle className="inline-flex items-center gap-2">
+          <FileJson className="h-4 w-4 text-[hsl(var(--accent-1))]" />
+          Almacenamiento de CVs y cartas
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Elige dónde se guardan los PDFs generados y qué formato tienen los
+          nombres de carpeta. Al cambiar el formato, puedes renombrar las
+          carpetas existentes automáticamente.
+        </p>
+
+        {loading || !config ? (
+          <p className="text-xs text-muted-foreground">Cargando…</p>
+        ) : (
+          <>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                Carpeta raíz
+              </span>
+              <input
+                type="text"
+                value={rootDir}
+                onChange={(e) => setRootDir(e.target.value)}
+                className="w-full rounded-md border border-[hsl(var(--border))] bg-background/40 px-3 py-2 font-mono text-xs"
+                placeholder={config.default_root_dir}
+                spellCheck={false}
+              />
+              <span className="block text-[11px] text-muted-foreground">
+                Ruta absoluta. Vacío = por defecto (
+                <code>{config.default_root_dir}</code>).
+              </span>
+            </label>
+
+            <fieldset className="space-y-2">
+              <legend className="text-xs uppercase tracking-wider text-muted-foreground">
+                Formato del nombre de carpeta
+              </legend>
+              {config.options.map((opt) => (
+                <label
+                  key={opt.key}
+                  className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 transition-colors ${
+                    naming === opt.key
+                      ? "border-[hsl(var(--accent-1))]/60 bg-[hsl(var(--accent-1))]/5"
+                      : "border-[hsl(var(--border))] hover:bg-background/40"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="naming"
+                    value={opt.key}
+                    checked={naming === opt.key}
+                    onChange={() => setNaming(opt.key)}
+                    className="accent-[hsl(var(--accent-1))]"
+                  />
+                  <span className="flex-1 text-sm font-medium">{opt.label}</span>
+                  <code className="text-[11px] text-muted-foreground">
+                    {opt.example}
+                  </code>
+                </label>
+              ))}
+            </fieldset>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={renameExisting}
+                onChange={(e) => setRenameExisting(e.target.checked)}
+                className="accent-[hsl(var(--accent-1))]"
+              />
+              <span>
+                Renombrar carpetas existentes al guardar
+                <span className="ml-2 text-[11px] text-muted-foreground">
+                  (mueve las carpetas actuales al nuevo formato/ruta y actualiza
+                  las referencias)
+                </span>
+              </span>
+            </label>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="outline"
+                disabled={!dirty || saving}
+                onClick={() => {
+                  if (!config) return;
+                  setRootDir(config.root_dir);
+                  setNaming(config.naming_scheme);
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Descartar
+              </Button>
+              <Button onClick={save} disabled={!dirty || saving} shimmer>
+                <Save className="h-3.5 w-3.5" />
+                {saving ? "Guardando…" : "Guardar"}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
