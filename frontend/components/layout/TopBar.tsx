@@ -6,6 +6,7 @@ import { ChevronRight, RadioTower } from "lucide-react";
 import { useMetricsToday } from "@/hooks/useMetrics";
 import { usePersons } from "@/hooks/usePersons";
 import { ThemeToggle } from "./ThemeToggle";
+import { BackgroundJobsBadge } from "./BackgroundJobsBadge";
 import { useBackendStatus } from "@/hooks/useBackendStatus";
 import { useHasPaidApi } from "@/hooks/useAiSettings";
 import { cn, formatEur } from "@/lib/utils";
@@ -107,6 +108,7 @@ export function TopBar() {
         </div>
 
         <div className="flex items-center gap-2">
+          <BackgroundJobsBadge />
           <div
             className={cn(
               "hidden md:flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-wider transition-colors",
