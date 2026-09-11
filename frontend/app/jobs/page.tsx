@@ -38,8 +38,17 @@ export default function JobsPage() {
   const [status, setStatus] = React.useState<JobStatus>("detected");
   const [offset, setOffset] = React.useState(0);
 
+  // Debounce minScore so dragging the slider does not flood the backend
+  // (each request rescores every job, so 6 concurrent requests block
+  //  everything else including images).
+  const [debouncedMinScore, setDebouncedMinScore] = React.useState(minScore);
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedMinScore(minScore), 400);
+    return () => window.clearTimeout(id);
+  }, [minScore]);
+
   const jobs = useJobsPage({
-    min_score: minScore,
+    min_score: debouncedMinScore,
     source: source === "all" ? undefined : source,
     status,
     track,
@@ -166,12 +175,29 @@ export default function JobsPage() {
             </div>
           </div>
 
-          {jobs.isLoading ? (
-            <Skeleton className="h-64 w-full" />
+          {jobs.data ? (
+            // We already have data (fresh or stale). Show the table always —
+            // never blank it out when the user comes back to the page.
+            <>
+              {jobs.isFetching && (
+                <div className="mb-2 inline-flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Actualizando…
+                </div>
+              )}
+              <JobTable jobs={list} />
+            </>
           ) : jobs.error ? (
             <p role="alert" className="text-sm text-rose-400">No se pudieron cargar las ofertas. <button className="underline" onClick={() => void jobs.refetch()}>Reintentar</button></p>
           ) : (
-            <JobTable jobs={list} />
+            // Absolute first load — no cached data yet.
+            <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[hsl(var(--border))] bg-background/40">
+              <Loader2 className="h-7 w-7 animate-spin text-[hsl(var(--accent-1))]" />
+              <p className="text-sm font-medium text-foreground">Cargando trabajos…</p>
+              <p className="text-xs text-muted-foreground">
+                Consultando la base de datos y aplicando filtros
+              </p>
+            </div>
           )}
           {total > 50 && <div className="flex justify-between items-center gap-3 text-sm">
             <span>{offset + 1}–{Math.min(offset + list.length, total)} of {total}</span>

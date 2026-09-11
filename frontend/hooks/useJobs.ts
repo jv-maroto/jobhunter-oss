@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -63,6 +64,17 @@ export function useJobsPage(q: JobsQuery) {
     throwOnError: false,
     queryKey: ["jobs", "page", q],
     queryFn: () => api(`/jobs${buildSearch(q)}`),
+    // Keep the previous page visible while a new filter is being fetched —
+    // otherwise every slider tick clears the table for ~19s and the user
+    // sees "Cargando trabajos" from scratch. With placeholderData the old
+    // rows stay on screen with the isFetching chip on top.
+    placeholderData: keepPreviousData,
+    // /jobs is expensive (backend rescores every row → ~19s per request).
+    // 5 min stale + 30 min cache means "salir a /pipeline y volver a /jobs"
+    // shows the previous table instantly, revalidating silently only if
+    // the user has been away for real time.
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 

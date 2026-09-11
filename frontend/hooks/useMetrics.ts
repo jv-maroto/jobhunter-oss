@@ -19,6 +19,10 @@ export function usePipeline() {
       const m = await api<Metrics>("/metrics/pipeline");
       return m.pipeline;
     },
+    // Pipeline numbers don't change per second — cache 60s and keep in
+    // memory 30 min so returning to /pipeline is instant.
+    staleTime: 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
