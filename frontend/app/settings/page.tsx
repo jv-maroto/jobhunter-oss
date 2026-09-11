@@ -15,6 +15,14 @@ import { JOB_TRACK_LABELS, type JobTrack } from "@/lib/types";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
+  // Wait until mounted before reading `theme` — during SSR next-themes
+  // returns undefined and the Switch below renders as "unchecked",
+  // producing a hydration mismatch on dark-mode users.
+  const themeMounted = React.useSyncExternalStore(
+    React.useCallback(() => () => {}, []),
+    () => true,
+    () => false,
+  );
   const [cv, setCv] = React.useState("");
   const [loadError, setLoadError] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -87,7 +95,8 @@ export default function SettingsPage() {
             </div>
             <Switch
               aria-label="Dark mode"
-              checked={theme === "dark"}
+              checked={themeMounted ? theme === "dark" : false}
+              disabled={!themeMounted}
               onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
             />
           </div>

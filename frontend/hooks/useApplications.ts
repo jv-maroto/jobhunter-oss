@@ -1,6 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ApplicationReview, ApplicationsPage } from "@/lib/types";
 
@@ -14,6 +19,11 @@ export function useApplications(query: { limit?: number; offset?: number; due_be
     queryFn: () => api(`/applications?${params.toString()}`),
     throwOnError: false,
     refetchInterval: 60_000,
+    // Keep the previous table visible while a new fetch is in-flight so
+    // switching pages or returning to /applications never blanks out.
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
