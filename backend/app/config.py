@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     # Feature flags — can be turned off in .env for the public version of the repo
     # (community user who only wants the job-search core without AI post/comment generation)
     enable_post_generation: bool = Field(default=True)
+    automatic_ai_enabled: bool = Field(default=False)
     enable_image_generation: bool = Field(default=True)
     enable_comment_suggestions: bool = Field(default=True)
     enable_trending_news: bool = Field(default=True)

@@ -55,6 +55,8 @@ export interface QualificationAssessment {
 }
 
 export interface Job {
+  globally_discovered?: boolean;
+  availability?: { status: "active" | "expired" | "unverified"; checked_at: string; reason: string; expires_at?: string | null } | null;
   id: number;
   source: string;
   source_url: string;
@@ -109,6 +111,7 @@ export type PostKind = "personal" | "trending";
 
 export interface Post {
   id: number;
+  created_at: string;
   date: string;
   topic: string;
   content: string;
@@ -150,6 +153,14 @@ export interface PrepareApplicationResponse {
 }
 
 export interface ApplicationReview {
+  job_snapshot?: {
+    title: string | null;
+    company: string | null;
+    location: string | null;
+    description: string | null;
+    source_url: string | null;
+    captured_at: string;
+  } | null;
   application_id: number | null;
   job: Job;
   status: string;

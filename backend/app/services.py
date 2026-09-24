@@ -6,14 +6,18 @@ import asyncio
 import json
 import logging
 import threading
+from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.job_availability import effective_availability, needs_indeed_verification
+from app.job_freshness import source_priority, stale_listing
 from app.models.company import Company
 from app.models.job import Job
 from app.schemas.job import JobOut, ScoredJobResult, ScrapedJob
@@ -29,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 # ponytail: one backend process; use a DB lease if deploying multiple API workers.
 _SCRAPE_LOCK = threading.Lock()
+_INGEST_LOCK = threading.Lock()
 _SCRAPE_STATE: dict[str, Any] = {
     "running": False, "trigger": None, "phase": "idle",
     "started_at": None, "finished_at": None, "error": None, "skipped": None,
@@ -40,6 +45,46 @@ _SCRAPE_STATE: dict[str, Any] = {
 
 def scrape_runtime_state() -> dict[str, Any]:
     return dict(_SCRAPE_STATE)
+
+
+def restore_scrape_runtime() -> None:
+    from app.task_history import recover_latest
+
+    saved = recover_latest("scrape")
+    if saved:
+        _SCRAPE_STATE.update(saved)
+
+
+def _persist_scrape_state() -> None:
+    from app.task_history import update_task
+
+    if _SCRAPE_STATE.get("task_id"):
+        update_task(_SCRAPE_STATE["task_id"], _SCRAPE_STATE)
+
+
+def reserve_scrape(*, trigger: str = "manual") -> bool:
+    """Reserve before responding to HTTP, so a second click sees the same task."""
+    from app.task_history import begin_task
+
+    if not _SCRAPE_LOCK.acquire(blocking=False):
+        return False
+    try:
+        _SCRAPE_STATE.update({
+            "running": True, "trigger": trigger, "phase": "starting", "task_id": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None, "error": None, "skipped": None,
+            **{key: 0 for key in (
+                "scraped", "inserted", "duplicates", "filtered_geography",
+                "unconfirmed_geography", "filtered_remote", "filtered_employment",
+                "filtered_seniority",
+            )},
+        })
+        _SCRAPE_STATE["task_id"] = begin_task("scrape", _SCRAPE_STATE)
+        return True
+    except Exception:
+        _SCRAPE_STATE.update({"running": False, "phase": "failed"})
+        _SCRAPE_LOCK.release()
+        raise
 
 
 @lru_cache(maxsize=1)
@@ -56,8 +101,39 @@ def _job_posting(job: Job) -> dict[str, Any]:
     return {field: getattr(job, field) for field in ScrapedJob.model_fields}
 
 
+def broad_discovery_profile(cv: dict) -> dict:
+    broad = deepcopy(cv)
+    prefs = dict(broad.get("search_preferences") or {})
+    for key in ("regions", "region_preset", "preferred_countries", "residence_country"):
+        prefs.pop(key, None)
+    prefs["remote_only"] = False
+    broad["search_preferences"] = prefs
+    return broad
+
+
 def current_job_metadata(job: Job, cv: dict[str, Any], *, rescore: bool = False) -> dict[str, Any]:
-    posting = _job_posting(job)
+    if getattr(job, "globally_discovered", False):
+        cv = broad_discovery_profile(cv)
+    # Cache pure assessment by profile, listing facts and persisted score. A
+    # profile edit or job update changes the key, so no stale scoring survives.
+    score_fields = ("match_score", "rejection_reason", "key_matches", "missing_skills",
+                    "personalization_hooks", "salary_in_range", "remote_compatible",
+                    "location_compatible", "employment_compatible", "seniority_compatible",
+                    "title", "description", "tags", "company", "location", "salary_min",
+                    "salary_max", "currency", "salary_period")
+    return deepcopy(_cached_job_metadata(
+        json.dumps(_job_posting(job), sort_keys=True, default=str),
+        json.dumps(cv, sort_keys=True, default=str),
+        json.dumps({key: getattr(job, key) for key in score_fields}, sort_keys=True, default=str),
+        rescore,
+    ))
+
+
+@lru_cache(maxsize=4096)
+def _cached_job_metadata(posting_json: str, cv_json: str, score_json: str, rescore: bool) -> dict[str, Any]:
+    posting = json.loads(posting_json)
+    cv = json.loads(cv_json)
+    job = SimpleNamespace(**json.loads(score_json))
     prefs = cv.get("search_preferences") or {}
     assessment = assess_qualifications(posting, cv)
     if rescore:
@@ -92,6 +168,14 @@ def current_job_metadata(job: Job, cv: dict[str, Any], *, rescore: bool = False)
 
 
 def discovery_job(job: Job, cv: dict[str, Any]) -> JobOut | None:
+    if job.status == "detected" and needs_indeed_verification(job):
+        return None
+    if (effective_availability(job.availability) or {}).get("status") == "expired":
+        return None
+    if job.status == "detected" and not job.saved_by_user and stale_listing(job):
+        return None
+    if job.globally_discovered:
+        cv = broad_discovery_profile(cv)
     prefs = cv.get("search_preferences") or {}
     metadata = current_job_metadata(job, cv)
     if resolve_regions(prefs) and metadata["location_compatible"] is not True:
@@ -101,7 +185,7 @@ def discovery_job(job: Job, cv: dict[str, Any]) -> JobOut | None:
     if metadata["employment_compatible"] is False or metadata["seniority_compatible"] is False:
         return None
     target_tracks = {detect_track(str(role)) for role in prefs.get("roles") or []}
-    if target_tracks and metadata["track"] not in target_tracks:
+    if not job.globally_discovered and target_tracks and metadata["track"] not in target_tracks:
         return None
     return JobOut.model_validate(job).model_copy(update=metadata)
 
@@ -153,11 +237,23 @@ def filter_scraped_jobs(scraped: list[ScrapedJob], prefs: dict) -> tuple[list[Sc
     return kept, counts
 
 
-def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, int]:
+def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob], *, cv_override: dict | None = None, globally_discovered: bool = False, ai_budget: dict | None = None) -> tuple[int, int]:
+    """Serialize shared inventory writes across campaigns and the global scrape.
+
+    Company creation and duplicate enrichment are multi-statement operations.
+    This lock covers the single API worker used by the Docker deployment.
+    """
+    with _INGEST_LOCK:
+        return _ingest_scraped_jobs(db, scraped, cv_override=cv_override, globally_discovered=globally_discovered, ai_budget=ai_budget)
+
+
+def _ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob], *, cv_override: dict | None = None, globally_discovered: bool = False, ai_budget: dict | None = None) -> tuple[int, int]:
     """Inserta ofertas nuevas (dedup por hash). Devuelve (insertados, duplicados)."""
     inserted = 0
     duplicates = 0
-    cv = load_cv_master()
+    cv = cv_override if cv_override is not None else load_cv_master()
+    if globally_discovered:
+        cv = broad_discovery_profile(cv)
     prefs = cv.get("search_preferences") or {}
 
     def _clean_unicode(s: str | None) -> str | None:
@@ -174,7 +270,15 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
     scored_count = 0
     skipped_scoring = 0
 
-    for sj in scraped:
+    for sj in sorted(scraped, key=lambda job: source_priority(job.source)):
+        if (sj.availability or {}).get("status") == "expired":
+            existing = db.scalar(select(Job).where(Job.hash == sj.hash, Job.source_url == sj.source_url))
+            if existing is not None:
+                existing.availability = sj.availability
+                db.commit()
+            continue
+        if stale_listing(sj):
+            continue
         # Sanitize all string fields before insert
         sj.title = _clean_unicode(sj.title) or ""
         sj.company = _clean_unicode(sj.company) or ""
@@ -185,8 +289,22 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
         existing = db.execute(select(Job).where(Job.hash == sj.hash)).scalar_one_or_none()
         if existing is not None:
             duplicates += 1
+            if sj.availability and existing.source_url == sj.source_url:
+                existing.availability = sj.availability
+                db.commit()
             if existing.status == "detected":
                 changed = False
+                if globally_discovered and not existing.globally_discovered:
+                    existing.globally_discovered = True
+                    changed = True
+                if source_priority(sj.source) < source_priority(existing.source) and sj.source_url:
+                    existing.source = sj.source
+                    existing.source_url = sj.source_url
+                    existing.source_id = sj.source_id
+                    changed = True
+                if sj.posted_at and existing.posted_at is None:
+                    existing.posted_at = sj.posted_at
+                    changed = True
                 salary_fields = ("salary_min", "salary_max", "currency", "salary_period")
                 amounts = ("salary_min", "salary_max")
                 salary_consistent = all(
@@ -210,7 +328,7 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
                         setattr(existing, field, new_value)
                         changed = True
                 if changed:
-                    for field, value in current_job_metadata(existing, cv, rescore=True).items():
+                    for field, value in current_job_metadata(existing, cv, rescore=not globally_discovered).items():
                         if field in Job.__table__.columns and (field != "employment_type" or existing.employment_type is None):
                             setattr(existing, field, value)
                     try:
@@ -220,14 +338,16 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
                         logger.warning("duplicate enrichment failed for %s/%s: %s", sj.source, sj.title, exc)
             continue
 
-        if not filter_scraped_jobs([sj], prefs)[0]:
+        if not globally_discovered and not filter_scraped_jobs([sj], prefs)[0]:
             continue
 
-        if cap and scored_count >= cap:
+        if (cap and scored_count >= cap) or (ai_budget is not None and ai_budget.get("remaining", 0) <= 0):
             scored = _heuristic_result(sj.model_dump(), cv)
             skipped_scoring += 1
         else:
             try:
+                if ai_budget is not None:
+                    ai_budget["remaining"] -= 1
                 scored = score_job(db, sj, cv)
                 scored_count += 1
             except Exception as exc:  # noqa: BLE001
@@ -245,6 +365,8 @@ def ingest_scraped_jobs(db: Session, scraped: list[ScrapedJob]) -> tuple[int, in
 
         job = Job(
             source=sj.source,
+            globally_discovered=globally_discovered,
+            availability=sj.availability,
             source_url=sj.source_url,
             source_id=sj.source_id,
             hash=sj.hash,
@@ -303,14 +425,14 @@ async def run_all_scrapers() -> list[ScrapedJob]:
     """
     cv = load_cv_master()
     prefs = cv.get("search_preferences", {}) if isinstance(cv, dict) else {}
-    instances = build_active_scrapers(cv, prefs)
+    instances = await asyncio.to_thread(build_active_scrapers, cv, prefs)
     results = await asyncio.gather(*(s.fetch() for s in instances), return_exceptions=True)
 
     all_jobs: list[ScrapedJob] = []
     seen_hashes: set[str] = set()
     ok_count = 0
     fail_count = 0
-    for scraper, res in zip(instances, results, strict=False):
+    for scraper, res in sorted(zip(instances, results, strict=False), key=lambda pair: 0 if pair[0].name == "jobspy" else 1):
         name = scraper.__class__.__name__
         if isinstance(res, Exception):
             # Log with full traceback so operators can debug: silently swallowing
@@ -349,6 +471,7 @@ async def _scrape_and_ingest(db: Session) -> dict[str, int | str]:
         return {"scraped": 0, "inserted": 0, "duplicates": 0, "skipped": "not_onboarded"}
 
     _SCRAPE_STATE["phase"] = "scraping"
+    _persist_scrape_state()
     scraped = await run_all_scrapers()
     scraped_count = len(scraped)
     _SCRAPE_STATE["scraped"] = scraped_count
@@ -374,18 +497,16 @@ async def _scrape_and_ingest(db: Session) -> dict[str, int | str]:
             logger.warning("rerank IA fallo, sigo sin reordenar: %s", exc)
 
     _SCRAPE_STATE["phase"] = "scoring"
+    _persist_scrape_state()
     inserted, duplicates = await asyncio.to_thread(ingest_scraped_jobs, db, scraped + existing_to_enrich)
     return {"scraped": scraped_count, "inserted": inserted, "duplicates": duplicates, **filtered}
 
 
-async def scrape_and_ingest(db: Session, *, trigger: str = "manual") -> dict[str, Any]:
-    if not _SCRAPE_LOCK.acquire(blocking=False):
+async def scrape_and_ingest(
+    db: Session, *, trigger: str = "manual", reserved: bool = False
+) -> dict[str, Any]:
+    if not reserved and not reserve_scrape(trigger=trigger):
         return {"status": "already_running", **scrape_runtime_state()}
-    _SCRAPE_STATE.update({
-        "running": True, "trigger": trigger, "phase": "starting",
-        "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "error": None, "skipped": None,
-        **{key: 0 for key in ("scraped", "inserted", "duplicates", "filtered_geography", "unconfirmed_geography", "filtered_remote", "filtered_employment", "filtered_seniority")},
-    })
     task = asyncio.create_task(_scrape_and_ingest(db))
     cancelled = False
     try:
@@ -409,4 +530,7 @@ async def scrape_and_ingest(db: Session, *, trigger: str = "manual") -> dict[str
         raise
     finally:
         _SCRAPE_STATE.update({"running": False, "finished_at": datetime.now(timezone.utc).isoformat()})
-        _SCRAPE_LOCK.release()
+        try:
+            _persist_scrape_state()
+        finally:
+            _SCRAPE_LOCK.release()

@@ -29,6 +29,30 @@ COUNTRY_MAP: dict[str, dict[str, str]] = {
     "FI": {"indeed": "Finland", "location": "Finland"},
 }
 
+
+# Additional markets supported by the installed python-jobspy country enum.
+# Europe presets remain unchanged; one-click discovery uses the entire map.
+for _code, _name in (
+    ("US", "USA"), ("CA", "Canada"), ("MX", "Mexico"),
+    ("AR", "Argentina"), ("BR", "Brazil"), ("CL", "Chile"),
+    ("CO", "Colombia"), ("CR", "Costa Rica"), ("EC", "Ecuador"),
+    ("PA", "Panama"), ("PE", "Peru"), ("UY", "Uruguay"), ("VE", "Venezuela"),
+    ("AU", "Australia"), ("NZ", "New Zealand"), ("JP", "Japan"),
+    ("SG", "Singapore"), ("IN", "India"), ("CN", "China"), ("HK", "Hong Kong"),
+    ("ID", "Indonesia"), ("MY", "Malaysia"), ("PH", "Philippines"),
+    ("KR", "South Korea"), ("TW", "Taiwan"), ("TH", "Thailand"), ("VN", "Vietnam"),
+    ("BD", "Bangladesh"), ("PK", "Pakistan"), ("AE", "United Arab Emirates"),
+    ("BH", "Bahrain"), ("IL", "Israel"), ("KW", "Kuwait"), ("OM", "Oman"),
+    ("QA", "Qatar"), ("SA", "Saudi Arabia"), ("TR", "Turkey"),
+    ("EG", "Egypt"), ("MA", "Morocco"), ("NG", "Nigeria"), ("ZA", "South Africa"),
+    ("BG", "Bulgaria"), ("HR", "Croatia"), ("CY", "Cyprus"), ("CZ", "Czech Republic"),
+    ("EE", "Estonia"), ("GR", "Greece"), ("HU", "Hungary"), ("LV", "Latvia"),
+    ("LT", "Lithuania"), ("LU", "Luxembourg"), ("MT", "Malta"),
+    ("RO", "Romania"), ("SK", "Slovakia"), ("SI", "Slovenia"), ("UA", "Ukraine"),
+):
+    COUNTRY_MAP[_code] = {"indeed": _name, "location": "United States" if _code == "US" else _name}
+
+
 # Geographic Europe preset; this is not an EU/EEA work-authorization list.
 EU_COUNTRIES: list[str] = [
     "ES", "DE", "FR", "SE", "GB", "IE", "NL", "IT", "PT",

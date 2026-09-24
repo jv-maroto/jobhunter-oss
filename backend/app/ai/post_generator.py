@@ -73,8 +73,17 @@ solo como anclaje puntual, no divagues sobre él.
 Recibes noticias tech reales (título + URL + summary + score + comentarios HN).
 El `summary` es descripción real (og:description) — no inventes detalles.
 
-PRIORIZACIÓN de qué noticias merecen post: entre las que recibas, prefiere las
-que aportan informacion concreta y relevante para las areas del autor.
+OBJETIVO: atraer lectores, conversaciones útiles y oportunidades profesionales
+para el autor. Busca alto potencial de difusión sin prometer viralidad.
+Recibes count: genera hasta count noticias DISTINTAS, ordenadas de mayor a menor
+interés para profesionales de tecnología. No repitas un mismo acontecimiento
+aunque lo cubran varios medios. No rellenes con noticias débiles.
+
+PRIORIZACIÓN: cambios concretos en herramientas de IA/desarrollo, lanzamientos
+que se puedan probar, seguridad, costes, empleo y decisiones técnicas con
+consecuencias para equipos. Equilibra estos temas: máximo un tercio sobre una
+misma empresa y evita que todo sea IA. Relevancia profesional y utilidad pesan
+más que votos. Los votos de distintos portales no son comparables.
 DESCARTA (devuelve menos posts) las noticias que son:
 - Tutorials genéricos ("cómo hacer X con Y")
 - Nicho muy técnico sin gancho general
@@ -87,7 +96,7 @@ Devuelve JSON:
     {
       "topic": "titular corto, max 55 chars, con GANCHO (no copies el original)",
       "category": "ai|python|sysadmin|frontend|project|career",
-      "content": "60-100 palabras — estructura obligatoria abajo",
+      "content": "100-180 palabras — estructura abajo",
       "hashtags": ["#3-5", "#hashtags", "#específicos"],
       "source_url": "URL EXACTA de la noticia original",
       "image_prompt": "una frase describiendo la imagen"
@@ -96,20 +105,23 @@ Devuelve JSON:
 }
 
 ESTRUCTURA obligatoria del `content` (LinkedIn scroll-stopper):
-- LÍNEA 1: frase breve de hasta 100 caracteres que resuma un hecho de la fuente.
+- LÍNEA 1: gancho de hasta 100 caracteres. Abre con una novedad concreta,
+  una comparación sustentada o una tensión profesional real. Que invite a
+  seguir leyendo sin ocultar el hecho central. Varía el formato entre posts.
 - LÍNEA EN BLANCO
-- 2-4 líneas de contexto (una idea por línea, corta). Puedes usar bullets con
+- 3-6 párrafos breves: qué ocurrió, por qué importa y una implicación práctica
+  para desarrolladores o equipos. Distingue esa interpretación de los hechos.
+  Incluye un límite o contrapunto cuando la fuente lo permita. Puedes usar bullets con
   el carácter "→ " o "• " al principio (NO markdown `-`/`*`).
 - LÍNEA EN BLANCO
-- CTA final: pregunta abierta 1 línea que invite a comentar. Ejemplos:
-    "¿Lo probarías en producción?"
-    "¿Vale realmente la pena migrar?"
-    "¿Qué pensáis?"
+- Cierre: pregunta ESPECÍFICA sobre una decisión o experiencia relacionada con
+  la noticia, o una conclusión útil. No acabes todos con pregunta. Prohibidos
+  "¿Qué pensáis?", "comenta SÍ", pedir likes, etiquetar amigos o fingir polémica.
 - LÍNEA EN BLANCO
 - Última línea SIEMPRE: "🔗 Fuente: {source_url}" (con la URL real)
 
 REGLAS estrictas:
-- Máximo 100 palabras en total (contando fuente).
+- Entre 100 y 180 palabras si hay información suficiente; más breve si no la hay.
 - NO frases largas — cada línea debe leerse en 2 segundos.
 - Tono directo, casi de conversación. Cero corporativismo.
 - 1 emoji funcional al inicio si aplica (🚨 breaking, 🤯 shock, 💰 dinero, 🧠 IA,
@@ -128,8 +140,9 @@ def generate_trending_posts(
     stories: list[dict[str, Any]],
     profile: dict[str, Any],
     language: str = "es",
+    count: int = 15,
 ) -> list[dict[str, Any]]:
-    """Toma stories (de HN o similar) y genera 1 post por noticia."""
+    """Select up to count distinct, relevant stories and draft sourced posts."""
     router = get_router()
     if not router.available_providers("generation"):
         raise NoLLMAvailableError(
@@ -162,9 +175,9 @@ def generate_trending_posts(
         + "\n\nAuthor profile (identical across every trending call):\n"
         + profile_block
     )
-    user_prompt = f"language={language}\n\nstories:\n{stories_block}"
+    user_prompt = f"language={language}\ncount={count}\n\nstories:\n{stories_block}"
 
-    max_tokens = min(16000, max(2000, len(stories) * 800 + 800))
+    max_tokens = min(16000, max(2000, count * 850 + 800))
     try:
         response = run_sync(
             router.complete_for(
@@ -179,7 +192,23 @@ def generate_trending_posts(
         posts = _parse_posts_tolerant(response.content)
         if not posts:
             raise RuntimeError("LLM returned no posts from trending stories")
-        return posts[: len(stories)]
+        from app.scrapers.trending_sources import canonical_story_url
+
+        allowed = {canonical_story_url(s["url"]): s["url"] for s in stories}
+        seen = set()
+        selected = []
+        for post in posts:
+            if not isinstance(post, dict):
+                continue
+            url = canonical_story_url(str(post.get("source_url") or ""))
+            if url not in allowed or url in seen or not post.get("content") or not post.get("topic"):
+                continue
+            post["source_url"] = allowed[url]
+            seen.add(url)
+            selected.append(post)
+        if not selected:
+            raise RuntimeError("No posts with a valid, distinct source were generated")
+        return selected[:count]
     except Exception as exc:
         logger.exception("Trending post gen failed: %s", exc)
         raise NoLLMAvailableError(f"La generación de posts trending falló: {exc}") from exc

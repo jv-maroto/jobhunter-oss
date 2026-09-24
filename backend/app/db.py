@@ -82,16 +82,28 @@ def init_db() -> None:
         app_setting,
         application,
         apply_queue,
+        career_analysis,
+        career_source,
         company,
+        company_board,
         email_event,
+        interview,
         job,
         person,
         post,
+        search_campaign,
+        task_run,
     )
 
     Base.metadata.create_all(bind=engine)
 
+    ensure_columns("interviews", {"updated_at": "DATETIME"})
+    ensure_columns("career_sources", {"active": "BOOLEAN NOT NULL DEFAULT 1"})
+    ensure_columns("posts", {"user_edited": "BOOLEAN NOT NULL DEFAULT 0"})
+
     ensure_columns("jobs", {
+        "globally_discovered": "BOOLEAN NOT NULL DEFAULT 0",
+        "availability": "JSON",
         "salary_period": "VARCHAR(16)",
         "employment_type": "VARCHAR(16)",
         "employment_compatible": "BOOLEAN",
@@ -112,5 +124,6 @@ def init_db() -> None:
             "cv_source_filename": "VARCHAR(256)",
             "cv_sha256": "VARCHAR(64)",
             "cv_mode": "VARCHAR(16)",
+            "job_snapshot": "JSON",
         },
     )

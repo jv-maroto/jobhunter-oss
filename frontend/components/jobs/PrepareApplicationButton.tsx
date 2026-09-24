@@ -22,6 +22,7 @@ export function PrepareApplicationButton({
   const router = useRouter();
 
   const generateAndOpen = async () => {
+    const progress = toast.loading("Preparando CV y carta…", { description: "La generación puede tardar varios minutos." });
     try {
       const prepared = await mutation.mutateAsync(job.id);
       router.push(`/applications/${prepared.application_id}`);
@@ -31,8 +32,12 @@ export function PrepareApplicationButton({
         duration: 15000,
       });
     } catch (e) {
-      toast.error(t("prepare_application_failed"), { description: String(e) });
-    }
+      const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+      toast.error(t("prepare_application_failed"), {
+        description: timedOut ? "Se ha agotado el tiempo de espera. El servidor puede seguir preparando los documentos; revisa Candidaturas antes de repetir." : String(e),
+        ...(timedOut ? { action: { label: "Ver candidaturas", onClick: () => router.push("/applications") } } : {}),
+      });
+    } finally { toast.dismiss(progress); }
   };
 
   return (

@@ -6,6 +6,7 @@ FROM python:3.12-slim
 # System deps: typst for CV generation, fonts for Pillow, node for Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    xz-utils \
     ca-certificates \
     fonts-dejavu-core \
     fonts-noto-color-emoji \
@@ -16,8 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Typst (CV generator)
-RUN curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz \
-    | tar -xJ --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) ARCH=aarch64 ;; amd64) ARCH=x86_64 ;; *) exit 1 ;; esac \
+    && curl -fsSL "https://github.com/typst/typst/releases/latest/download/typst-${ARCH}-unknown-linux-musl.tar.xz" \
+    | tar -xJ --strip-components=1 -C /usr/local/bin "typst-${ARCH}-unknown-linux-musl/typst"
 
 # Install Playwright + Chromium so trending posts get rendered as 1080x1080
 # banner PNGs (og:image hero + overlay). Without this, /posts/*/image falls
@@ -28,8 +31,11 @@ WORKDIR /app
 
 # Python deps (cached layer). `[onboarding]` = parsing de CV (PDF/DOCX).
 COPY pyproject.toml README.md ./
-COPY app ./app
+COPY app/__init__.py ./app/__init__.py
 RUN pip install --no-cache-dir -e ".[onboarding]"
+# Install optional provider SDKs after JobSpy has resolved its pinned NumPy.
+RUN pip install --no-cache-dir -e ".[openai,gemini,gmail]" && pip check
+COPY app ./app
 
 COPY .env.example ./
 

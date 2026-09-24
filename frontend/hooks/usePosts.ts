@@ -54,3 +54,40 @@ export function useMarkPostPublished() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["posts"] }),
   });
 }
+
+export interface NewsGeneration {
+  running: boolean;
+  created: number;
+  requested: number;
+  images_done: number;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export function useNewsGeneration() {
+  return useQuery<NewsGeneration>({
+    queryKey: ["news-generation"],
+    queryFn: () => api("/posts/generate-trending-status"),
+    refetchInterval: (query) => query.state.data?.running ? 2000 : 15000,
+    staleTime: 0,
+    throwOnError: false,
+  });
+}
+
+export function useRegenerateNews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ status: string }>("/posts/generate-trending", {
+      method: "POST", body: JSON.stringify({ count: 15, language: "es", replace_drafts: true }),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["news-generation"] }),
+  });
+}
+
+export function useDeleteOldNews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ deleted: number }>("/posts/trending/old?days=7", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["posts"] }),
+  });
+}

@@ -1,5 +1,7 @@
 "use client";
 
+import { AvailabilityCheck } from "@/components/jobs/AvailabilityCheck";
+
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -15,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 import { PrepareApplicationButton } from "@/components/jobs/PrepareApplicationButton";
 import { QualificationChecks } from "@/components/jobs/QualificationChecks";
+import { EvaluateJobButton } from "@/components/jobs/EvaluateJobButton";
 
 function Tracker({ job }: { job: Job }) {
   const [notes, setNotes] = React.useState(job.notes ?? "");
@@ -77,9 +80,11 @@ export default function JobDetailPage() {
       </div>
       <div className="flex flex-wrap items-center gap-3 pt-3"><PrepareApplicationButton job={job} />{sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex gap-1.5 items-center text-sm underline underline-offset-4">Original posting<ExternalLink size={14} /></a>}<Link href="/applications" className="text-sm underline underline-offset-4">Application history</Link></div>
     </CardHeader></Card>
+    <AvailabilityCheck job={job} />
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-5 min-w-0">
         <QualificationChecks assessment={job.qualification_assessment} />
+        <Card variant="glass"><CardContent className="space-y-3 pt-5"><p className="text-sm text-muted-foreground">Puedes recuperar una evaluación que quedó como estimación sin IA. Los resultados válidos se reutilizan; no se reevalúan automáticamente todas las ofertas.</p><EvaluateJobButton job={job} /></CardContent></Card>
         {(job.key_matches.length > 0 || job.missing_skills.length > 0) && <Card variant="glass"><CardContent className="pt-5 grid gap-4 sm:grid-cols-2"><div><h2 className="font-medium text-sm mb-2">Evidence to highlight</h2><ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">{job.key_matches.map((value, index) => <li key={index}>{value}</li>)}</ul></div><div><h2 className="font-medium text-sm mb-2">Skills to verify</h2><ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">{job.missing_skills.map((value, index) => <li key={index}>{value}</li>)}</ul></div></CardContent></Card>}
         <Card variant="glass"><CardHeader><CardTitle>Job description</CardTitle></CardHeader><CardContent><div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{job.description || "No description was provided. Check the original posting before preparing an application."}</div></CardContent></Card>
       </div>

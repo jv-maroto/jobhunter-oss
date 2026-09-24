@@ -12,12 +12,17 @@ import { cn, formatEur } from "@/lib/utils";
 
 const TITLES: Record<string, { title: string; sub: string }> = {
   "/today": {
-    title: "Today",
-    sub: "Fresh detections + LinkedIn outreach",
+    title: "Inicio",
+    sub: "Resumen de tu búsqueda y próximas acciones",
   },
+  "/tools": { title: "Herramientas", sub: "Opciones adicionales organizadas por tarea" },
+  "/boards": { title: "Portales de empresas", sub: "Ofertas directas para revisar" },
+  "/interviews": { title: "Entrevistas", sub: "Práctica basada en tus candidaturas" },
+  "/campaigns": { title: "Campañas", sub: "Búsquedas por profesión y país" },
+  "/profile": { title: "Mi perfil", sub: "Evidencias y orientación profesional" },
   "/jobs": {
-    title: "Jobs",
-    sub: "All detected jobs in a full table",
+    title: "Trabajos para ti",
+    sub: "Busca con tu perfil y elige después",
   },
   "/pipeline": {
     title: "Pipeline",
@@ -71,7 +76,7 @@ export function TopBar() {
             href="/today"
             className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition-colors hidden sm:inline shrink-0"
           >
-            JobSlaves
+            Jobslave
           </Link>
           <ChevronRight className="h-3 w-3 text-muted-foreground hidden sm:block shrink-0" />
           <div className="min-w-0 flex-1">

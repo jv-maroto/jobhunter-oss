@@ -16,10 +16,15 @@ from app.api import (
     ai_settings,
     applications,
     apply,
+    boards,
+    campaigns,
+    career,
     comments,
     cv_storage_settings,
+    discovery,
     ext,
     integrations,
+    interviews,
     jobs,
     metrics,
     networking,
@@ -67,6 +72,26 @@ def bootstrap_cv_master() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("startup: init_db()")
     init_db()
+    from app.discovery import restore_discovery
+    from app.services import restore_scrape_runtime
+
+    restore_discovery()
+    restore_scrape_runtime()
+    posts.restore_trending_runtime()
+    from app.career.analysis import recover_interrupted
+
+    recover_interrupted()
+    from app.career.sources import recover_source_refresh
+
+    recover_source_refresh()
+    from app.search_campaigns.runner import recover_interrupted_runs
+
+    recover_interrupted_runs()
+    from app.company_boards.service import recover_interrupted_refreshes
+    from app.interviews.service import recover_preparations
+
+    recover_interrupted_refreshes()
+    recover_preparations()
     settings.data_path  # asegura dirs
     bootstrap_cv_master()
 
@@ -107,7 +132,7 @@ def _rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONRespon
 
 
 app = FastAPI(
-    title="Jobhunter Backend",
+    title="Jobslave Backend",
     version="0.1.0",
     description=(
         "Self-hosted job search: scraping, LLM scoring (Anthropic / OpenAI / Gemini / "
@@ -136,6 +161,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(career.router)
+app.include_router(campaigns.router)
+app.include_router(boards.router)
+app.include_router(interviews.router)
+app.include_router(discovery.router)
 app.include_router(jobs.router)
 app.include_router(applications.router)
 app.include_router(persons.router)

@@ -35,9 +35,11 @@ async function responseError(res: Response): Promise<ApiError> {
 export async function api<T>(
   path: string,
   init?: RequestInit,
+  options?: { timeoutMs?: number },
 ): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
+    signal: AbortSignal.any([AbortSignal.timeout(options?.timeoutMs ?? 60_000), ...(init?.signal ? [init.signal] : [])]),
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),

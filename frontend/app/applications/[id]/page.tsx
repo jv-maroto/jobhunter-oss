@@ -54,6 +54,8 @@ function ApplicationEditor({ id, review, version }: { id: number; review: Applic
   const coverUrl = review.cover_url === `/applications/${id}/cover` ? `${BASE_URL}${review.cover_url}?v=${version}` : null;
   const submitted = apiDate(review.submitted_at);
   const prepared = apiDate(review.prepared_at);
+  const snapshot = review.job_snapshot;
+  const snapshotUrl = publicJobUrl(snapshot?.source_url);
 
   React.useEffect(() => {
     if (!dirty) return;
@@ -111,6 +113,19 @@ function ApplicationEditor({ id, review, version }: { id: number; review: Applic
             <Button asChild variant="outline"><Link href={`/jobs/${review.job.id}`} onNavigate={guardNavigation}>Notes & next action</Link></Button>
             {originalUrl && <Button asChild variant="outline"><a href={originalUrl} target="_blank" rel="noopener noreferrer">Original job<ExternalLink /></a></Button>}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card variant="glass">
+        <CardHeader><CardTitle>Anuncio guardado con esta candidatura</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {snapshot ? <>
+            <p className="font-medium">{snapshot.title || "Puesto sin título"}</p>
+            <p className="text-muted-foreground">{[snapshot.company, snapshot.location].filter(Boolean).join(" · ")}</p>
+            <p className="text-xs text-muted-foreground">Capturado: {apiDate(snapshot.captured_at)?.toLocaleString("es-ES") ?? "Fecha desconocida"}. Se conserva esta copia aunque el anuncio cambie después.</p>
+            <details><summary className="cursor-pointer">Leer la descripción guardada</summary><p className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed">{snapshot.description || "El anuncio no tenía una descripción disponible al preparar esta candidatura."}</p></details>
+            {snapshotUrl && <a className="inline-flex items-center gap-1 text-[hsl(var(--accent-1))] underline" href={snapshotUrl} target="_blank" rel="noopener noreferrer">Abrir enlace guardado<ExternalLink className="h-3 w-3" /></a>}
+          </> : <p className="text-muted-foreground">Esta candidatura no tiene una copia histórica del anuncio. La oferta actual puede haber cambiado desde que preparaste los documentos.</p>}
         </CardContent>
       </Card>
 

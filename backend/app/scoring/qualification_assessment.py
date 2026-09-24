@@ -7,6 +7,7 @@ from datetime import date, datetime
 from functools import lru_cache
 from typing import Any
 
+from app.career.normalization import degree_level, field_variants, normalize_profile
 from app.scoring.language_requirements import language_checks
 
 _DEGREES = (
@@ -96,10 +97,13 @@ def _education(clause: str, importance: str, cv: dict) -> dict | None:
     for entry in cv.get("education") or []:
         if not isinstance(entry, dict):
             continue
-        degree = str(entry.get("degree") or entry.get("qualification") or "")
+        variants = field_variants(entry, "degree") + field_variants(entry, "qualification")
+        degree = "; ".join(str(value) for value in variants)
         if entry.get("completed") is False or re.search(r"\b(?:pursuing|expected|in progress|incomplete|ph\.?d\.? candidate|scrum master)\b", _norm(_text(entry))):
             continue
-        ranks = [rank for rank, pattern in _DEGREES if re.search(pattern, _norm(degree))]
+        ranks = {degree_level(value) for value in variants} - {None}
+        if len(ranks) > 1:
+            return _check("education", importance, clause, "unknown", "Conflicting credential levels in profile variants require review")
         if ranks:
             candidate.append((max(ranks), degree))
     if not candidate:
@@ -132,14 +136,17 @@ def _month(value: Any, *, current: bool = False) -> int | None:
 
 def _professional_entries(cv: dict) -> list[dict]:
     entries = [entry for entry in cv.get("experience") or [] if isinstance(entry, dict)]
-    return [entry for entry in entries if not re.search(_ACADEMIC, _norm(" ".join(str(entry.get(key) or "") for key in ("context", "employment_type", "role", "title"))))]
+    academic = _ACADEMIC + r"|\b(?:academico|academica|curso|proyecto personal|estudiante)\b"
+    return [entry for entry in entries if not re.search(academic, _norm(" ".join(
+        str(value) for key in ("context", "employment_type", "role", "title")
+        for value in field_variants(entry, key))))]
 
 
 def _experience_text(entry: dict) -> str:
-    return "; ".join(_text(entry[key]) for key in (
+    return "; ".join(dict.fromkeys(_text(value) for key in (
         "role", "title", "domain", "highlights", "bullets", "description", "summary",
         "technologies", "skills", "responsibilities", "context", "context_detail", "claim_boundaries",
-    ) if entry.get(key))
+    ) for value in field_variants(entry, key)))
 
 
 def _domain_tokens(text: str) -> set[str]:
@@ -180,6 +187,9 @@ def _experience(clause: str, importance: str, cv: dict) -> dict | None:
         today = date.today()
         current_month = today.year * 12 + today.month - 1
         for entry in relevant:
+            if any(len({str(value).strip() for value in field_variants(entry, key)}) > 1 for key in ("start", "end")):
+                undated = True
+                continue
             start, end = _month(entry.get("start")), _month(entry.get("end"), current=entry.get("current") is True)
             if start is None or end is None or end < start or start > current_month:
                 undated = True
@@ -241,6 +251,7 @@ def assess_qualifications(job: dict[str, Any], cv: dict[str, Any]) -> dict[str, 
     Unknown means unverified, never absent. Preferences and ambiguous requirements
     remain separate from mandatory gaps; this is not an interview probability.
     """
+    cv = normalize_profile(cv)
     checks = language_checks(job, cv)
     language_requirements = {_norm(check["requirement"]) for check in checks}
     for clause, importance in _clauses(str(job.get("description") or "")):

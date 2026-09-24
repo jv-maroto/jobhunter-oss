@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import re
 import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -280,43 +282,80 @@ def _title_key(title: str) -> str:
     return " ".join(sorted(words[:6]))
 
 
+def canonical_story_url(url: str) -> str:
+    """Ignore tracking parameters and fragments when identifying an article."""
+    try:
+        parts = urlsplit(url.strip())
+        if parts.scheme not in {"http", "https"} or not parts.netloc:
+            return ""
+        query = urlencode(sorted((k, v) for k, v in parse_qsl(parts.query)
+                                 if not k.lower().startswith("utm_")
+                                 and k.lower() not in {"fbclid", "gclid"}))
+        return urlunsplit(("https", parts.netloc.lower(), parts.path.rstrip("/"), query, ""))
+    except ValueError:
+        return ""
+
+
 def dedupe_and_rank(
     stories: list[dict[str, Any]], limit: int = 30
 ) -> list[dict[str, Any]]:
-    """Cross-source dedupe by (url, title_key). When the same story appears in
-    multiple sources, keep the one with highest raw score AND boost its final
-    score by +25% per additional source that covers it (proxy for virality)."""
-    by_url: dict[str, dict[str, Any]] = {}
-    by_titlekey: dict[str, dict[str, Any]] = {}
-    for s in stories:
-        url = s.get("url", "")
-        tkey = _title_key(s.get("title", ""))
-        # Match by URL first
-        existing = by_url.get(url) or by_titlekey.get(tkey)
-        if existing is not None:
-            existing["_coverage"] = existing.get("_coverage", 1) + 1
-            existing["_also_by"] = existing.get("_also_by", []) + [s.get("by", "?")]
-            if s.get("score", 0) > existing.get("score", 0):
-                # Keep the version with higher raw score, preserve coverage
-                cov = existing["_coverage"]
-                also = existing["_also_by"]
-                s["_coverage"] = cov
-                s["_also_by"] = also
-                by_url[url] = s
-                by_titlekey[tkey] = s
-            continue
-        s["_coverage"] = 1
-        s["_also_by"] = []
-        by_url[url] = s
-        by_titlekey[tkey] = s
+    """Rank editorial candidates, balancing freshness, relevance and sources.
 
-    unique = list({id(v): v for v in by_url.values()}.values())
-    # Final score = raw_score × (1 + 0.25 × extra_coverage)
-    for s in unique:
-        extra = max(0, s["_coverage"] - 1)
-        s["_final_score"] = int(s.get("score", 0) * (1 + 0.25 * extra))
-    unique.sort(key=lambda x: x["_final_score"], reverse=True)
-    return unique[:limit]
+    This is a selection heuristic, not a prediction of LinkedIn impressions.
+    RSS baseline scores are not treated as measured audience engagement.
+    """
+    groups: list[dict[str, Any]] = []
+    for s in stories:
+        url = canonical_story_url(s.get("url", ""))
+        if not url or not s.get("title"):
+            continue
+        tkey = _title_key(s.get("title", ""))
+        matches = [g for g in groups if url in g["urls"] or
+                   (len(tkey.split()) >= 4 and tkey in g["titles"])]
+        group = {"urls": {url}, "titles": {tkey}, "stories": [s]}
+        for old in matches:
+            group["urls"].update(old["urls"])
+            group["titles"].update(old["titles"])
+            group["stories"].extend(old["stories"])
+            groups.remove(old)
+        groups.append(group)
+
+    rss_sources = {name for name, _, _ in _RSS_FEEDS} | {"techmeme"}
+    now = time.time()
+    ranked = []
+    for group in groups:
+        candidates = group["stories"]
+        story = dict(max(candidates, key=lambda s: (bool(s.get("summary_raw")), s.get("score", 0))))
+        sources = {s.get("by", "unknown") for s in candidates}
+        engagement = max((math.log1p(max(0, s.get("score", 0))) +
+                          math.log1p(max(0, s.get("comments", 0))) for s in candidates
+                          if s.get("by") not in rss_sources), default=0)
+        age_hours = max(0, (now - story["time"]) / 3600) if story.get("time") else 48
+        text = (story["title"] + " " + story.get("summary_raw", "")).lower()
+        relevance = sum(bool(re.search(pattern, text)) for pattern in (
+            r"\b(ai|llm|model|agent|openai|anthropic)\b",
+            r"\b(python|developer|software|coding|api|open.source)\b",
+            r"\b(security|breach|vulnerability|linux|cloud|docker)\b",
+            r"\b(jobs|hiring|salary|layoffs|cost|pricing|work)\b",
+        ))
+        story["_coverage"] = len(sources)
+        story["_also_by"] = sorted(sources - {story.get("by")})
+        story["_final_score"] = round(20 + min(engagement, 12) * 2 +
+                                      min(len(sources) - 1, 3) * 8 + relevance * 10 +
+                                      max(0, 24 - age_hours), 2)
+        ranked.append(story)
+    ranked.sort(key=lambda s: s["_final_score"], reverse=True)
+    # Preserve variety in the candidate pool; backfill if few sources respond.
+    cap = max(1, math.ceil(limit * 0.4))
+    selected, deferred, counts = [], [], {}
+    for story in ranked:
+        source = story.get("by", "unknown")
+        if counts.get(source, 0) >= cap:
+            deferred.append(story)
+        else:
+            selected.append(story)
+            counts[source] = counts.get(source, 0) + 1
+    return (selected + deferred)[:limit]
 
 
 # ---------------------------------------------------------------------------

@@ -7,11 +7,10 @@ from unittest.mock import patch
 import pytest
 
 from app.api.jobs import scrape_status
-from app.scheduler import _job_scrape
 from app.services import scrape_and_ingest, scrape_runtime_state
 
 
-def test_scheduler_is_visible_and_blocks_overlapping_manual_scrape():
+def test_legacy_scrape_is_visible_and_blocks_overlapping_manual_scrape():
     async def scenario():
         started, release = asyncio.Event(), asyncio.Event()
         calls = []
@@ -24,10 +23,10 @@ def test_scheduler_is_visible_and_blocks_overlapping_manual_scrape():
 
         scheduler_db = SimpleNamespace(close=lambda: None)
         with patch("app.services._scrape_and_ingest", side_effect=pipeline), patch("app.scheduler.is_onboarded", return_value=True), patch("app.scheduler.SessionLocal", return_value=scheduler_db):
-            task = asyncio.create_task(_job_scrape())
+            task = asyncio.create_task(scrape_and_ingest(scheduler_db))
             await started.wait()
             state = scrape_status()
-            assert state["running"] is True and state["trigger"] == "scheduler"
+            assert state["running"] is True and state["trigger"] == "manual"
             assert state["finished_at"] is None
             duplicate = await scrape_and_ingest(SimpleNamespace())
             assert duplicate["status"] == "already_running"

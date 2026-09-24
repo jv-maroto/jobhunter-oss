@@ -14,7 +14,7 @@ const interTight = Inter_Tight({
 });
 
 export const metadata: Metadata = {
-  title: "JobSlaves — Command Center",
+  title: "Jobslave — Command Center",
   description:
     "Self-hosted job search command center: scrape, score, prepare CVs and grow your network.",
 };

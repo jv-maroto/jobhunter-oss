@@ -11,3 +11,12 @@ data/cache/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+*.db-shm
+*.db-wal
+data/
+
+# Never bake personal profiles, backups or credentials into images
+.env.*
+!.env.example
+app/data/cv_master.json
+app/data/cv_master_backups/

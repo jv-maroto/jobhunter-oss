@@ -40,6 +40,7 @@ class ScrapedJob(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     hash: str = ""  # Calculado por base.py
+    availability: dict | None = None
 
 
 class ScoredJobResult(BaseModel):
@@ -59,6 +60,20 @@ class ScoredJobResult(BaseModel):
 
 class JobOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    globally_discovered: bool = False
+    availability: dict | None = None
+
+    @field_validator("globally_discovered", mode="before")
+    @classmethod
+    def default_discovery_flag(cls, value):
+        return False if value is None else value
+
+    @field_validator("availability", mode="before")
+    @classmethod
+    def current_availability(cls, value):
+        from app.job_availability import effective_availability
+        return effective_availability(value)
 
     id: int
     source: str

@@ -22,6 +22,7 @@ def test_fresh_install_endpoints() -> None:
 
         # Y NO se scrapea con la plantilla: 409 en las dos rutas de "buscar ahora".
         assert client.post("/jobs/scrape-now").status_code == 409
+        assert client.post("/jobs/discover-now").status_code == 409
         assert client.post("/scrape/run").status_code == 409
 
         # El estado de IA expone si el modelo local esta descargado.

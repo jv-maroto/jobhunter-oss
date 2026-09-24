@@ -8,8 +8,8 @@ and helps with LinkedIn — all running on your own machine.
 
 > **Single-user, local-first**: no login, no cloud database, no telemetry.
 > Everything lives on your laptop: a SQLite DB, your profile JSON and the API
-> keys you choose to add. The only outbound traffic is to the job boards and to
-> the LLM provider you pick (none if you use Ollama).
+> keys you choose to add. Discovery contacts external job boards; optional
+> integrations and cloud AI contact the services you configure.
 
 ---
 
@@ -24,6 +24,45 @@ and helps with LinkedIn — all running on your own machine.
 | **LinkedIn helper** | Weekly content posts (devlog + trending Hacker News) with generated infographics; comment suggestions on posts you visit; connection notes. |
 | **Chrome extension** | Auto-fills application forms on Wellfound, Lever, Greenhouse, Ashby, Workable, Indeed and 15+ ATS platforms from your profile data. |
 | **Tracking** | Optional read-only Gmail sync classifies recruiter replies and moves jobs through the pipeline (reversible). |
+
+## Docker: run locally
+
+Requires Docker with Compose **2.24 or newer**. No Python or Node installation is needed.
+
+```sh
+git clone https://github.com/jv-maroto/jobhunter-oss.git
+cd jobhunter-oss
+docker compose up -d --build
+```
+
+Open http://localhost:3000 and complete the profile wizard. API health:
+http://localhost:8000/health. The optional `backend/.env` can be copied from
+`backend/.env.example`; configure AI providers in Settings when needed.
+Both services bind to localhost and restart while Docker is running.
+
+Your database, generated documents and backups stay in `backend/data/`, your
+profile in `backend/app/data/cv_master.json`, and exported CV copies in `cvs-out/`.
+These personal files are excluded from Git. To back up local data, run
+`python3 scripts/backup-local.py --help`. Keep backups outside the repository.
+Use `docker compose down` to stop and `docker compose logs --tail=100` to diagnose.
+To update: `git pull --ff-only` then `docker compose up -d --build`.
+
+If upgrading an older Docker install that used `backend/jobhunter.db`, stop the
+old containers and back up that database (including SQLite WAL files) first.
+Restore a consistent copy to `backend/data/jobhunter.db` only if the new path is
+empty; never overwrite an existing database. Keep the original backup.
+
+Global discovery uses local scoring without paid AI calls. AI evaluation and CV
+preparation run on request; scheduled AI content generation is disabled by default.
+The compact jobs table keeps scores visible and supports country and remote filters.
+Expired offers are hidden; Indeed offers require a recent positive availability
+check. Other unverified sources are labelled, since a reachable URL alone does
+not prove a vacancy remains open.
+
+LinkedIn drafts and generated content stay local. Regenerating news replaces
+unedited drafts only after successful generation; deleting old news backs up
+drafts older than seven days in `backend/data/post_backups/`. Published posts can
+be hidden from the list. Publishing to LinkedIn is a separate user action.
 
 ## Quick start
 

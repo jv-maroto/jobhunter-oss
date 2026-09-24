@@ -72,3 +72,8 @@ cvs-out/*
 backend/jobhunter.db
 backend/data/
 backend/.env
+
+# Personal audit notes and local deployment overrides
+IMPLEMENTATION_STATUS.md
+compose.override.yaml
+docker-compose.override.yml

@@ -9,6 +9,7 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.job_freshness import stale_listing
 from app.models.api_call import ApiCall
 from app.models.job import Job
 from app.models.person import Person
@@ -84,22 +85,57 @@ def today_metrics(db: Session = Depends(get_db)) -> MetricsToday:
 # jobs de baja puntuación ya movidos a applied/rejected/etc.).
 _MAX_PER_STATUS = 300
 
+# Statuses whose columns get flooded with stale rows over time. Users don't
+# act on a "detected" that is 3 months old — it's noise. We cap by age at
+# the SQL level so a 5 k DB doesn't turn into a 15 k JobOut serialization.
+_AGE_CAPPED_STATUSES = {"detected", "rejected", "ghosted"}
+_DEFAULT_STALE_DAYS = 30
+
 
 @router.get("/pipeline", response_model=MetricsPipeline)
-def pipeline_metrics(db: Session = Depends(get_db)) -> MetricsPipeline:
-    """Kanban feed. Was 7 sequential SELECTs (one per status) — a single
-    IN-query + in-memory bucketing is ~7x faster on any non-empty DB and
-    keeps the same per-status cap. On 5k jobs the difference is 200 ms → 40 ms."""
+def pipeline_metrics(
+    db: Session = Depends(get_db),
+    stale_days: int = Query(
+        default=_DEFAULT_STALE_DAYS,
+        ge=1,
+        le=365,
+        description=(
+            "Hide detected/rejected/ghosted jobs older than N days. Jobs the "
+            "user actively moved (prepared/applied/interviewing/offer) are "
+            "always shown regardless of age."
+        ),
+    ),
+) -> MetricsPipeline:
+    """Kanban feed with per-column caps and age-based filtering.
+
+    The three "backlog" columns (detected, rejected, ghosted) get pruned at
+    the SQL level so a 5 k-row DB doesn't produce 15 k JobOut objects and
+    freeze the frontend. Columns the user has actively touched keep every
+    row so nothing gets hidden by mistake.
+    """
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
     statuses = ["detected", "prepared", "applied", "interviewing", "offer", "rejected", "ghosted"]
     bucket: dict[str, list[JobOut]] = {s: [] for s in statuses}
     counts: dict[str, int] = {s: 0 for s in statuses}
+    cutoff = _dt.utcnow() - _td(days=stale_days if isinstance(stale_days, int) else 30)
 
-    all_jobs = db.execute(
+    stmt = (
         select(Job)
-        .where(Job.status.in_(statuses))
+        .where(
+            Job.status.in_(statuses),
+            # Either the row is in a non-backlog status OR it is recent enough.
+            or_(
+                ~Job.status.in_(_AGE_CAPPED_STATUSES),
+                Job.created_at >= cutoff,
+            ),
+        )
         .order_by(desc(Job.match_score))
-    ).scalars().all()
-    for j in all_jobs:
+    )
+    for j in db.execute(stmt).scalars():
+        if j.status == "detected" and not j.saved_by_user and stale_listing(j):
+            continue
         if counts[j.status] >= _MAX_PER_STATUS:
             continue
         bucket[j.status].append(JobOut.model_validate(j))

@@ -41,6 +41,7 @@ class ApplicationOut(BaseModel):
     cv_sha256: str | None
     cv_mode: str | None
     cover_letter_content: str | None
+    job_snapshot: dict | None = None
 
     @field_serializer("prepared_at", "submitted_at", when_used="json")
     def serialize_utc(self, value: datetime | None) -> str | None:
@@ -94,6 +95,7 @@ def _review(job: Job, application: Application | None, profile: dict) -> Applica
         cv_mode=(application.cv_mode or ("existing" if source else None))
         if application else None,
         cover_letter_content=application.cover_letter_content if application else None,
+        job_snapshot=application.job_snapshot if application else None,
     )
 
 

@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
+from app.job_freshness import parse_posted_at, stale_listing
 from app.schemas.job import ScrapedJob
 from app.scrapers.base import BaseScraper
 
@@ -143,19 +143,7 @@ class JobspyScraper(BaseScraper):
                     sal_max = row.get("max_amount")
                     currency = row.get("currency")
 
-                    posted = row.get("date_posted")
-                    if isinstance(posted, str):
-                        try:
-                            posted_dt = datetime.fromisoformat(posted)
-                        except Exception:  # noqa: BLE001
-                            posted_dt = datetime.now(tz=timezone.utc)
-                    else:
-                        try:
-                            posted_dt = (
-                                posted.to_pydatetime() if hasattr(posted, "to_pydatetime") else None
-                            )
-                        except Exception:  # noqa: BLE001
-                            posted_dt = None
+                    posted_dt = parse_posted_at(row.get("date_posted"))
 
                     all_jobs.append(
                         ScrapedJob(
@@ -176,4 +164,4 @@ class JobspyScraper(BaseScraper):
                         )
                     )
 
-        return self._finalize(all_jobs)
+        return self._finalize([job for job in all_jobs if not stale_listing(job)])

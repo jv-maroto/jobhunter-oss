@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, dehydrate, hydrate } from "@tanstack/react-query";
+import { readJobCache, writeJobCache } from "@/lib/jobCache";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { CommandPalette } from "@/components/layout/CommandPalette";
@@ -26,18 +27,46 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60_000,
+            staleTime: 5 * 60_000,
+            gcTime: 24 * 60 * 60_000,
             refetchOnWindowFocus: false,
             retry: 1,
             // Antes los fallos se tapaban con datos inventados (apiOrMock).
             // Ahora se propagan al error boundary (`app/error.tsx`) para que
             // quede claro que el backend no responde, en vez de enseñar
             // ofertas que no existen.
-            throwOnError: true,
+            throwOnError: (_error, query) => query.state.data === undefined,
           },
         },
       }),
   );
+
+  React.useEffect(() => {
+    const maxAge = 24 * 60 * 60_000;
+    let disposed = false;
+    let restored = false;
+    void readJobCache().then((saved) => {
+      if (!disposed && saved && Date.now() - saved.savedAt < maxAge) hydrate(client, saved.state);
+    }).catch(() => { /* Browser storage may be unavailable. */ }).finally(() => { restored = true; });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const persist = () => {
+      if (!restored) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          const state = dehydrate(client, {
+            shouldDehydrateMutation: () => false,
+            shouldDehydrateQuery: (q) => ["jobs", "pipeline", "metrics"].includes(String(q.queryKey[0]))
+              && q.state.data !== undefined && !q.state.isInvalidated
+              && Date.now() - q.state.dataUpdatedAt < maxAge,
+          });
+          void writeJobCache({ savedAt: Date.now(), state }).catch(() => {});
+        } catch { /* A full cache must never prevent displaying jobs. */ }
+      }, 300);
+    };
+    const unsubscribe = client.getQueryCache().subscribe(persist);
+    return () => { disposed = true; unsubscribe(); clearTimeout(timer); };
+  }, [client]);
 
   return (
     <ThemeProvider

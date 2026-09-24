@@ -34,7 +34,7 @@ import { usePersons } from "@/hooks/usePersons";
 import { useMetricsToday } from "@/hooks/useMetrics";
 import { useHasPaidApi } from "@/hooks/useAiSettings";
 import { useApplications } from "@/hooks/useApplications";
-import { useScrapeStatus } from "@/hooks/useScrapeStatus";
+import { useDiscovery } from "@/hooks/useDiscovery";
 import { api } from "@/lib/api";
 import { apiDate, cn, formatEur } from "@/lib/utils";
 
@@ -60,17 +60,16 @@ export default function TodayPage() {
   const metrics = useMetricsToday();
   const hasPaidApi = useHasPaidApi();
   const due = useApplications({ due_before: dueBefore, limit: 8 });
-  const { running: scraping, refetch: refetchScrape } = useScrapeStatus();
+  const { data: discovery, refetch: refetchScrape } = useDiscovery();
+  const scraping = discovery?.running === true;
   const scrapeBusy = startingScrape || scraping;
 
   const detected = (jobs.data ?? []).filter((j) => j.status === "detected");
-  const fresh = detected.slice().sort(
-    (a, b) => (b.match_score ?? 0) - (a.match_score ?? 0),
-  );
+  const fresh = detected;
   const triggerScrape = async () => {
     setStartingScrape(true);
     try {
-      const result = await api<{ status: string }>("/jobs/scrape-now", { method: "POST" });
+      const result = await api<{ status: string }>("/jobs/discover-now", { method: "POST" });
       toast.info(result.status === "already_running" ? "Discovery is already running" : "Discovery started", {
         description: "The list updates when discovery finishes.",
       });
@@ -253,15 +252,18 @@ export default function TodayPage() {
                 </div>
               </div>
 
+              {jobs.isFetching && jobs.data && <p role="status" className="text-sm text-muted-foreground">Actualizando ofertas de trabajo…</p>}
+              {jobs.error && jobs.data && <p role="alert" className="text-sm text-amber-400">No se pudieron actualizar las ofertas. Se muestran las últimas guardadas.</p>}
               {jobs.isLoading ? (
-                <div className="space-y-2">
+                <div role="status" aria-live="polite" className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Cargando ofertas de trabajo…</p>
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-12 w-full" />
                 </div>
-              ) : jobs.isError ? (
+              ) : jobs.isError && !jobs.data ? (
                 <div role="alert" className="space-y-2 text-sm">
-                  <p>Could not load detected jobs.</p>
+                  <p>No se pudieron cargar las ofertas de trabajo.</p>
                   <Button variant="outline" size="sm" onClick={() => jobs.refetch()}>Retry</Button>
                 </div>
               ) : fresh.length === 0 ? (

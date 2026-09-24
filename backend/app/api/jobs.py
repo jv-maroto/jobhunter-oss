@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import unicodedata
 from pathlib import Path
 from typing import Literal
@@ -14,7 +15,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.cover_letter import generate_cover_letter
@@ -22,6 +23,8 @@ from app.ai.cv_generator import _detect_language, generate_cv
 from app.apply.state import TERMINAL_STATUSES, UNSET, transition_job
 from app.config import settings
 from app.db import get_db
+from app.job_availability import effective_availability, needs_indeed_verification
+from app.job_freshness import source_priority
 from app.models.application import Application
 from app.models.job import Job
 from app.rate_limit import limiter
@@ -39,12 +42,14 @@ from app.services import (
     current_job_metadata,
     discovery_job,
     load_cv_master,
+    reserve_scrape,
     scrape_and_ingest,
     scrape_runtime_state,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+_RESCORE_LOCK = threading.Lock()
 
 
 def _company_slug(name: str | None, job_id: int) -> str:
@@ -102,6 +107,15 @@ def list_jobs(
     track: JobTrack | Literal["all", ""] | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    stale_days: int = Query(
+        default=30,
+        ge=1,
+        le=365,
+        description=(
+            "Hide detected/rejected/ghosted rows older than N days. Rows the "
+            "user actively moved (prepared/applied/…) are always shown."
+        ),
+    ),
     db: Session = Depends(get_db),
 ) -> JobsListOut:
     stmt = select(Job).order_by(desc(Job.created_at))
@@ -109,11 +123,32 @@ def list_jobs(
         stmt = stmt.where(Job.status == status)
     if source:
         stmt = stmt.where(Job.source == source)
+
+    # Prune old backlog rows at the SQL level so the request doesn't have to
+    # (re)score thousands of jobs the user already ignored. On a DB with 5 k
+    # detected rows this cuts the endpoint from ~19 s to <500 ms.
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    _STALE_STATUSES = ("detected", "rejected", "ghosted")
+    cutoff = _dt.utcnow() - _td(days=stale_days if isinstance(stale_days, int) else 30)
+    stmt = stmt.where(
+        or_(
+            ~Job.status.in_(_STALE_STATUSES),
+            Job.created_at >= cutoff,
+        )
+    )
+
     cv = load_cv_master()
     # ponytail: local-sized job collection; move metadata predicates into indexed columns if this grows large.
     items = []
     for job in db.scalars(stmt):
-        if job.source == "manual" or job.saved_by_user:
+        if job.status == "detected" and needs_indeed_verification(job):
+            continue
+        if status in (None, "detected") and (effective_availability(job.availability) or {}).get("status") == "expired":
+            continue
+        if job.globally_discovered:
+            item = discovery_job(job, cv)
+        elif job.source == "manual" or job.saved_by_user:
             item = JobOut.model_validate(job).model_copy(update=current_job_metadata(job, cv, rescore=True))
         elif job.status != "detected":
             item = JobOut.model_validate(job)
@@ -124,9 +159,15 @@ def list_jobs(
         if min_score is not None and item.match_score < min_score:
             continue
         items.append(item)
-    items.sort(key=lambda item: item.match_score, reverse=True)
+    items.sort(key=lambda item: (0 if (item.availability or {}).get("status") == "active" else 1, source_priority(item.source), -item.match_score))
     return JobsListOut(total=len(items), items=items[offset:offset + limit])
 
+
+
+@router.get("/snapshot", response_model=JobsListOut)
+def jobs_snapshot(db: Session = Depends(get_db)) -> JobsListOut:
+    return list_jobs(status=None, min_score=None, source=None, track=None,
+                     limit=2**31 - 1, offset=0, stale_days=30, db=db)
 
 
 @router.get("/swipe", response_model=list[JobOut])
@@ -153,7 +194,7 @@ def swipe_jobs(
         if min_rank and band_rank.get(item.predicted_salary_band, 0) < min_rank:
             continue
         items.append(item)
-    items.sort(key=lambda item: (-item.match_score, -band_rank.get(item.predicted_salary_band, 0)))
+    items.sort(key=lambda item: (source_priority(item.source), -item.match_score, -band_rank.get(item.predicted_salary_band, 0)))
     return items[:limit]
 
 
@@ -168,7 +209,7 @@ async def _run_scrape_background() -> None:
 
     db = SessionLocal()
     try:
-        await scrape_and_ingest(db)
+        await scrape_and_ingest(db, reserved=True)
     except Exception as exc:
         logger.exception("scrape background failed: %s", exc)
     finally:
@@ -185,16 +226,91 @@ async def scrape_now(request: Request, background_tasks: BackgroundTasks) -> dic
             status_code=409,
             detail="Completa el onboarding antes de buscar ofertas (sin perfil no hay queries).",
         )
-    state = scrape_runtime_state()
-    if state["running"]:
-        return {"status": "already_running", **state}
+    if not reserve_scrape():
+        return {"status": "already_running", **scrape_runtime_state()}
     background_tasks.add_task(_run_scrape_background)
-    return {"status": "started"}
+    return {"status": "started", **scrape_runtime_state()}
 
 
 @router.get("/scrape-status", tags=["jobs"])
 def scrape_status() -> dict:
     return scrape_runtime_state()
+
+
+@router.get("/archive-stale/preview", tags=["jobs"])
+def archive_stale_preview(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cuánto se borraría si el usuario confirma. Nada se toca."""
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    cutoff = _dt.utcnow() - _td(days=days)
+    stale_statuses = ("detected", "rejected", "ghosted")
+    rows = db.execute(
+        select(Job.status, Job.id)
+        .where(Job.status.in_(stale_statuses), Job.created_at < cutoff)
+    ).all()
+    by_status: dict[str, int] = {}
+    for status, _ in rows:
+        by_status[status] = by_status.get(status, 0) + 1
+    return {"days": days, "total": len(rows), "by_status": by_status}
+
+
+@router.delete("/archive-stale", tags=["jobs"])
+def archive_stale(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Borra permanentemente los jobs viejos que ya nadie está mirando.
+
+    Solo toca `detected`, `rejected`, `ghosted` — los estados que se llenan
+    de ruido con el tiempo. Jobs que el usuario movió (prepared, applied,
+    interviewing, offer) NUNCA se borran aunque estén "vencidos".
+
+    Además borra en cascada cualquier `Application` que refiera a esos
+    jobs para no dejar filas huérfanas.
+    """
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    cutoff = _dt.utcnow() - _td(days=days)
+    stale_statuses = ("detected", "rejected", "ghosted")
+
+    victim_ids = [
+        jid for jid in db.execute(
+            select(Job.id).where(
+                Job.status.in_(stale_statuses),
+                Job.created_at < cutoff,
+            )
+        ).scalars()
+    ]
+    if not victim_ids:
+        return {"days": days, "deleted_jobs": 0, "deleted_applications": 0}
+
+    # Cascading delete of related applications first
+    apps_deleted = 0
+    for aid in db.execute(
+        select(Application.id).where(Application.job_id.in_(victim_ids))
+    ).scalars():
+        db.delete(db.get(Application, aid))
+        apps_deleted += 1
+
+    # Then the jobs themselves
+    jobs_deleted = 0
+    for jid in victim_ids:
+        job = db.get(Job, jid)
+        if job is not None:
+            db.delete(job)
+            jobs_deleted += 1
+
+    db.commit()
+    return {
+        "days": days,
+        "deleted_jobs": jobs_deleted,
+        "deleted_applications": apps_deleted,
+    }
 
 
 @router.post("/import", response_model=JobImportOut)
@@ -252,7 +368,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> JobOut:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     result = JobOut.model_validate(job)
-    metadata = current_job_metadata(job, load_cv_master(), rescore=job.source == "manual" or job.saved_by_user)
+    metadata = current_job_metadata(job, load_cv_master(), rescore=not job.globally_discovered and (job.source == "manual" or job.saved_by_user))
     return result.model_copy(update=metadata)
 
 
@@ -285,6 +401,43 @@ def patch_job(job_id: int, patch: JobPatch, db: Session = Depends(get_db)) -> Jo
     db.commit()
     db.refresh(job)
     return JobOut.model_validate(job)
+
+
+@router.post("/{job_id}/evaluate", response_model=JobOut)
+@limiter.limit("6/minute")
+def evaluate_job(request: Request, job_id: int, db: Session = Depends(get_db)) -> JobOut:
+    """Explicit single-job recovery of heuristic scores; successful caches reuse."""
+    from app.ai.router import get_router
+    from app.schemas.job import ScrapedJob
+    from app.scoring.scorer import score_job
+
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(404, "Oferta no encontrada")
+    if len((job.description or "").strip()) < 80:
+        raise HTTPException(422, "La descripción es demasiado corta para evaluar requisitos con fiabilidad.")
+    if not get_router().available_providers("scoring"):
+        raise HTTPException(503, "Configura un proveedor de IA para evaluar esta oferta.")
+    if not _RESCORE_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "Hay otra evaluación en curso. Inténtalo cuando termine.")
+    try:
+        payload = {field: getattr(job, field) for field in ScrapedJob.model_fields}
+        from app.services import broad_discovery_profile
+
+        cv = load_cv_master()
+        if job.globally_discovered:
+            cv = broad_discovery_profile(cv)
+        score = score_job(db, payload, cv, retry_heuristic=True)
+        if "heuristic" in (score.rejection_reason or "").lower():
+            raise HTTPException(503, "La IA no pudo evaluar la oferta. Se conserva la valoración anterior.")
+        for field, value in score.model_dump().items():
+            if field in Job.__table__.columns:
+                setattr(job, field, value)
+        db.commit()
+        db.refresh(job)
+        return JobOut.model_validate(job)
+    finally:
+        _RESCORE_LOCK.release()
 
 
 @router.delete("/{job_id}")
@@ -348,11 +501,33 @@ def delete_job(job_id: int, db: Session = Depends(get_db)) -> dict:
     return {"deleted": True, "job_id": job_id, "applications": len(app_rows)}
 
 
+_PREPARING_JOBS: set[int] = set()
+
+
 @router.post("/{job_id}/prepare-application", response_model=PrepareApplicationOut)
 @limiter.limit("20/minute")
 async def prepare_application(
     request: Request, job_id: int, db: Session = Depends(get_db)
 ) -> PrepareApplicationOut:
+    if job_id in _PREPARING_JOBS:
+        raise HTTPException(409, "Ya se está preparando este CV; espera a que termine antes de repetir.")
+    _PREPARING_JOBS.add(job_id)
+    try:
+        job = db.get(Job, job_id)
+        if job and needs_indeed_verification(job):
+            from app.job_availability import check_listing
+            job.availability = await check_listing({"title": job.title, "company": job.company, "source_url": job.source_url, "description": job.description})
+            db.commit()
+            if needs_indeed_verification(job):
+                raise HTTPException(422, "No se ha podido confirmar que esta oferta de Indeed siga abierta. No se ha gastado IA en preparar el CV.")
+        if job and (effective_availability(job.availability) or {}).get("status") == "expired":
+            raise HTTPException(422, "La oferta está caducada. No se prepararán documentos para ella.")
+        return await _prepare_application(request, job_id, db)
+    finally:
+        _PREPARING_JOBS.discard(job_id)
+
+
+async def _prepare_application(request: Request, job_id: int, db: Session) -> PrepareApplicationOut:
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -581,3 +756,18 @@ def get_cover_letter(job_id: int, db: Session = Depends(get_db)):
 
 
 # Scrape routes have been moved above /{job_id} to avoid path conflict.
+
+
+@router.post("/{job_id}/availability", response_model=JobOut)
+@limiter.limit("12/minute")
+async def check_job_availability(request: Request, job_id: int, db: Session = Depends(get_db)) -> JobOut:
+    from app.job_availability import check_listing
+
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(404, "Oferta no encontrada")
+    result = await check_listing({"title": job.title, "company": job.company, "source_url": job.source_url, "description": job.description})
+    job.availability = result
+    db.commit()
+    db.refresh(job)
+    return JobOut.model_validate(job)

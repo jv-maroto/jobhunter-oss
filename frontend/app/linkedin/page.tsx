@@ -8,6 +8,7 @@ import {
   Copy,
   RefreshCcw,
   X,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { WeekScheduler } from "@/components/posts/WeekScheduler";
 import { PersonCard } from "@/components/persons/PersonCard";
-import { usePosts } from "@/hooks/usePosts";
+import { usePosts, useNewsGeneration, useRegenerateNews, useDeleteOldNews } from "@/hooks/usePosts";
 import { usePersons } from "@/hooks/usePersons";
 import * as React from "react";
 import { Input, Textarea } from "@/components/ui/input";
@@ -30,6 +31,44 @@ import {
 
 export default function LinkedInPage() {
   const posts = usePosts();
+  const { refetch: refetchPosts } = posts;
+  const news = useNewsGeneration();
+  const regenerateNews = useRegenerateNews();
+  const deleteNews = useDeleteOldNews();
+  const [deleteResult, setDeleteResult] = React.useState<string | null>(null);
+  const newsBusy = news.data?.running || regenerateNews.isPending;
+  const previousFinish = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const finished = news.data?.finished_at;
+    if (finished && finished !== previousFinish.current) {
+      previousFinish.current = finished;
+      void refetchPosts();
+    }
+  }, [news.data?.finished_at, refetchPosts]);
+
+  const refreshNews = async () => {
+    try {
+      await regenerateNews.mutateAsync();
+      toast.info("Regenerando noticias de LinkedIn…");
+    } catch (error) {
+      toast.error("No se pudo regenerar", { description: String(error).slice(0, 180) });
+    }
+  };
+  const removeOldNews = async () => {
+    if (!window.confirm("¿Borrar los borradores de noticias creados hace más de 7 días? Se conservarán los posts personales, programados y publicados.")) return;
+    try {
+      const result = await deleteNews.mutateAsync();
+      const message = result.deleted > 0
+        ? `${result.deleted} borradores de noticias antiguos borrados.`
+        : "No hay borradores de noticias de más de 7 días para borrar. Las noticias publicadas y programadas se conservan.";
+      setDeleteResult(message);
+      if (result.deleted > 0) toast.success(message);
+      else toast.info(message);
+    } catch (error) {
+      setDeleteResult(`No se pudieron borrar: ${String(error).slice(0, 180)}`);
+      toast.error("No se pudieron borrar", { description: String(error).slice(0, 180) });
+    }
+  };
   const persons = usePersons();
   const comments = useCommentSuggestions(8);
   const regenerate = useRegenerateComment();
@@ -37,6 +76,9 @@ export default function LinkedInPage() {
   const skipComment = useSkipComment();
 
   const pendingPersons = (persons.data ?? []).filter((p) => p.status === "pending");
+  const pendingPosts = (posts.data ?? [])
+    .filter((post) => post.status !== "published")
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const commentsList = comments.data ?? [];
 
   const addManual = useAddManualPost();
@@ -70,13 +112,13 @@ export default function LinkedInPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <Card variant="glass" hover="lift" className="p-4">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            Posts queue
+            Publicaciones pendientes
           </div>
           <div className="mt-2 mono text-2xl font-semibold tabular-nums leading-none text-foreground">
-            {(posts.data ?? []).length}
+            {pendingPosts.length}
           </div>
           <div className="mt-1 text-[10px] text-muted-foreground">
-            this week
+            sin publicar
           </div>
         </Card>
         <Card variant="glass" hover="lift" className="p-4">
@@ -108,17 +150,34 @@ export default function LinkedInPage() {
         <CardHeader>
           <CardTitle className="inline-flex items-center gap-2">
             <Calendar className="h-4 w-4 text-[hsl(var(--accent-1))]" />
-            This week of posts
+            Noticias y publicaciones de LinkedIn
           </CardTitle>
           <p className="text-[11px] text-muted-foreground">
-            Click any card to edit before scheduling.
+            Hasta 15 noticias nuevas por tanda, con ganchos y contexto para profesionales de tecnología. Las ya publicadas se ocultan automáticamente.
           </p>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={refreshNews} disabled={newsBusy || deleteNews.isPending}>
+                <RefreshCcw className={newsBusy ? "animate-spin" : ""} />
+                {newsBusy ? "Regenerando noticias…" : "Regenerar noticias"}
+              </Button>
+              <Button variant="outline" onClick={removeOldNews} disabled={newsBusy || deleteNews.isPending}>
+                <Trash2 />{deleteNews.isPending ? "Borrando…" : "Borrar borradores de más de 7 días"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Regenerar sustituye los borradores de noticias cuando los nuevos están listos. El borrado solo elimina borradores de más de 7 días; conserva las publicaciones programadas y publicadas.</p>
+            {deleteResult && <p role="status" className="text-sm">{deleteResult}</p>}
+            {newsBusy && <p role="status" className="text-sm">Generando noticias de LinkedIn… {news.data?.created ?? 0} noticias y {news.data?.images_done ?? 0} imágenes listas.</p>}
+            {news.data?.error && !newsBusy && <p role="alert" className="text-sm text-rose-400">{news.data.error}</p>}
+          </div>
           {posts.isLoading ? (
             <Skeleton className="h-48 w-full" />
+          ) : pendingPosts.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No hay publicaciones pendientes. Pulsa «Regenerar noticias» para buscar nuevas.</p>
           ) : (
-            <WeekScheduler posts={posts.data ?? []} />
+            <WeekScheduler posts={pendingPosts} />
           )}
         </CardContent>
       </Card>

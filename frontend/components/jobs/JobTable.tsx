@@ -122,6 +122,7 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
                     <span className="block truncate" title={company}>
                       {company}
                     </span>
+                    <span className="mt-1 block text-[10px]" title={job.availability?.reason || "No se ha podido confirmar si sigue abierta"}>{job.availability?.status === "active" ? "Vigencia comprobada" : "Vigencia sin confirmar"}</span>
                   </TableCell>
                   <TableCell className="hidden md:table-cell min-w-0">
                     {job.remote ? (
@@ -129,10 +130,10 @@ export function JobTable({ jobs }: { jobs: Job[] }) {
                         variant="default"
                         size="sm"
                         className="gap-1 max-w-full"
-                        title={job.location ?? "Remote"}
+                        title={job.location || "Ubicación por confirmar"}
                       >
                         <Globe className="h-3 w-3 shrink-0" />
-                        Remote
+                        <span className="truncate">{job.location || "Remote"}</span>
                       </Badge>
                     ) : (
                       <span

@@ -60,6 +60,8 @@ def score_job(
     db: Session,
     job: ScrapedJob | dict[str, Any],
     cv_master: dict[str, Any],
+    *,
+    retry_heuristic: bool = False,
 ) -> ScoredJobResult:
     """Puntua una oferta. Usa cache local si existe; si no, llama al router (tier=scoring).
 
@@ -72,6 +74,7 @@ def score_job(
         sort_keys=True, ensure_ascii=False, default=str,
     ).encode()).hexdigest()[:32]
 
+    cached = None
     if job_hash:
         cached = db.execute(
             select(ScoreCache).where(
@@ -80,7 +83,9 @@ def score_job(
         ).scalar_one_or_none()
         if cached is not None:
             try:
-                return constrain_score(ScoredJobResult.model_validate(cached.result_json), job_dict, cv_master)
+                result = ScoredJobResult.model_validate(cached.result_json)
+                if not (retry_heuristic and "heuristic" in (result.rejection_reason or "").lower()):
+                    return constrain_score(result, job_dict, cv_master)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -95,13 +100,14 @@ def score_job(
 
     if job_hash:
         try:
-            db.add(
-                ScoreCache(
+            if cached is not None:
+                cached.result_json = result.model_dump()
+            else:
+                db.add(ScoreCache(
                     job_hash=job_hash,
                     cv_version=cv_version,
                     result_json=result.model_dump(),
-                )
-            )
+                ))
             db.commit()
         except Exception:  # noqa: BLE001
             db.rollback()

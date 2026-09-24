@@ -28,6 +28,7 @@ class PostOut(BaseModel):
     scheduled_at: datetime | None = None
     published_at: datetime | None = None
     created_at: datetime
+    user_edited: bool = False
 
 
 class PostPatch(BaseModel):
@@ -43,6 +44,6 @@ class PostGenerateIn(BaseModel):
 
 
 class TrendingGenerateIn(BaseModel):
-    count: int = 10
+    count: int = Field(default=10, ge=1, le=30)
     language: Literal["es", "en"] = "es"
     replace_drafts: bool = False  # if true, deletes existing draft 'trending' posts first

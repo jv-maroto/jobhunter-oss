@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models.post import Post
 from app.onboarding.detect import is_onboarded
-from app.services import load_cv_master, scrape_and_ingest
+from app.services import load_cv_master
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,11 @@ async def _job_scrape() -> None:
         # dijera quien es.
         logger.info("scheduler: onboarding pendiente, scrape omitido")
         return
-    logger.info("scheduler: running scrape+ingest")
-    db = SessionLocal()
-    try:
-        result = await scrape_and_ingest(db, trigger="scheduler")
-        logger.info("scheduler: scrape result %s", result)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("scheduler scrape failed: %s", exc)
-    finally:
-        db.close()
+    from app.discovery import reserve_discovery, run_discovery
+
+    if reserve_discovery():
+        logger.info("scheduler: broad discovery with no paid AI scoring")
+        await run_discovery()
 
 
 async def _job_gmail_sync() -> None:
@@ -61,7 +57,7 @@ async def _job_gmail_sync() -> None:
 
 def _job_posts_weekly() -> None:
     """Cada domingo 18:00: genera 7 posts para la semana siguiente."""
-    if not settings.enable_post_generation:
+    if not settings.enable_post_generation or not settings.automatic_ai_enabled:
         return
     if not is_onboarded():
         logger.info("scheduler: onboarding pendiente, posts semanales omitidos")
@@ -149,8 +145,8 @@ def trigger_scrape_sync() -> dict:
 
 
 async def _trigger_scrape_async() -> dict:
-    db = SessionLocal()
-    try:
-        return await scrape_and_ingest(db)
-    finally:
-        db.close()
+    from app.discovery import discovery_status, reserve_discovery, run_discovery
+
+    if reserve_discovery():
+        await run_discovery()
+    return discovery_status()

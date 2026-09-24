@@ -72,6 +72,8 @@ class Job(Base):
     next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_action_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     saved_by_user: Mapped[bool] = mapped_column(default=False)
+    availability: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    globally_discovered: Mapped[bool] = mapped_column(default=False, index=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

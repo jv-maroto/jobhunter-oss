@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import date as date_t
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,7 +23,7 @@ from app.models.post import Post
 from app.rate_limit import limiter
 from app.schemas.post import PostGenerateIn, PostOut, PostPatch, TrendingGenerateIn
 from app.scrapers.article_summary import fetch_metas
-from app.scrapers.trending_sources import fetch_top_trending_24h
+from app.scrapers.trending_sources import canonical_story_url, fetch_top_trending_24h
 from app.services import load_cv_master
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,8 @@ def patch_post(post_id: int, patch: PostPatch, db: Session = Depends(get_db)) ->
     if patch.scheduled_at is not None:
         p.scheduled_at = patch.scheduled_at
     if patch.content is not None:
+        if patch.content != p.content:
+            p.user_edited = True
         p.content = patch.content
     db.commit()
     db.refresh(p)
@@ -348,6 +351,8 @@ def generate_week(
 # Trending posts (Hacker News last 24h → Claude → posts + news-template imgs)
 # ---------------------------------------------------------------------------
 
+_TRENDING_LOCK = threading.Lock()
+
 _TRENDING_STATE: dict[str, object] = {
     "running": False,
     "started_at": None,
@@ -358,6 +363,21 @@ _TRENDING_STATE: dict[str, object] = {
     "images_done": 0,
     "error": None,
 }
+
+
+def restore_trending_runtime() -> None:
+    from app.task_history import recover_latest
+
+    saved = recover_latest("trending")
+    if saved:
+        _TRENDING_STATE.update(saved)
+
+
+def _persist_trending_state() -> None:
+    from app.task_history import update_task
+
+    if _TRENDING_STATE.get("task_id"):
+        update_task(int(_TRENDING_STATE["task_id"]), _TRENDING_STATE)
 
 
 def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> None:
@@ -376,29 +396,38 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
         "created": 0,
         "images_done": 0,
         "error": None,
+        "phase": "sources",
     })
+    _persist_trending_state()
 
     db = SessionLocal()
     try:
         # 1) Fetch trending from ALL sources (HN + Techmeme + Reddit + RSS)
         # Ask for 2× the requested count so Claude has slack to filter down.
         try:
-            stories = asyncio.run(fetch_top_trending_24h(limit=max(count * 2, 30)))
+            stories = asyncio.run(fetch_top_trending_24h(limit=min(90, max(count * 4, 40))))
         except RuntimeError:
             # If we're inside an async loop already, run in a new thread
             import threading
             holder: dict = {}
             def runner():
                 holder["v"] = asyncio.run(
-                    fetch_top_trending_24h(limit=max(count * 2, 30))
+                    fetch_top_trending_24h(limit=min(90, max(count * 4, 40)))
                 )
             t = threading.Thread(target=runner)
             t.start()
             t.join()
             stories = holder.get("v", [])
+        existing = select(Post.source_url).where(Post.kind == "trending")
+        if replace_drafts:
+            existing = existing.where((Post.status != "draft") | Post.user_edited.is_(True))
+        used_urls = {canonical_story_url(url) for url in db.scalars(existing) if url}
+        stories = [s for s in stories if canonical_story_url(s["url"]) not in used_urls]
         _TRENDING_STATE["stories_found"] = len(stories)
+        _TRENDING_STATE["phase"] = "generation"
+        _persist_trending_state()
         if not stories:
-            _TRENDING_STATE["error"] = "No stories found in last 24h"
+            _TRENDING_STATE["error"] = "No hay noticias nuevas sin publicar entre las fuentes disponibles. Se conservan los borradores."
             return
 
         # 1.5) Fetch og:description AND og:image from each article URL in parallel
@@ -419,26 +448,22 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
             metas = sholder.get("v", {})
         for s in stories:
             m = metas.get(s["url"], {}) or {}
-            s["summary"] = m.get("summary", "")
+            s["summary"] = m.get("summary") or s.get("summary_raw", "")
             s["og_image"] = m.get("image", "")
-
-        # 2) Optionally clear existing draft trending posts
-        if replace_drafts:
-            old = db.execute(
-                select(Post).where(Post.kind == "trending", Post.status == "draft")
-            ).scalars().all()
-            for p in old:
-                if p.image_path:
-                    try:
-                        Path(p.image_path).unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
-                        pass
-                db.delete(p)
-            db.commit()
 
         # 3) Generate post text via Claude
         cv = load_cv_master()
-        items = generate_trending_posts(stories, cv, language=language)
+        items = generate_trending_posts(stories, cv, language=language, count=count)[:count]
+        if not items:
+            _TRENDING_STATE["error"] = "No se generaron noticias. Se conservan las anteriores."
+            return
+        # Replace only after generation succeeds; deletion and inserts share
+        # one transaction so a failure never wipes the existing drafts.
+        if replace_drafts:
+            for old in db.scalars(select(Post).where(
+                Post.kind == "trending", Post.status == "draft", Post.user_edited.is_(False)
+            )):
+                db.delete(old)
 
         # 4) Persist posts + generate images with news template
         today = date_t.today()
@@ -481,6 +506,8 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
             out.append(post)
         db.commit()
         _TRENDING_STATE["created"] = len(out)
+        _TRENDING_STATE["phase"] = "images"
+        _persist_trending_state()
 
         for idx, (p, item) in enumerate(zip(out, items, strict=False)):
             db.refresh(p)
@@ -510,6 +537,7 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
                     _TRENDING_STATE["images_done"] = (
                         int(_TRENDING_STATE["images_done"]) + 1
                     )
+                    _persist_trending_state()
             except Exception as e:  # noqa: BLE001
                 logger.warning("trending image gen failed for post %s: %s", p.id, e)
                 db.rollback()
@@ -523,6 +551,12 @@ def _run_generate_trending(count: int, language: str, replace_drafts: bool) -> N
         db.close()
         _TRENDING_STATE["running"] = False
         _TRENDING_STATE["finished_at"] = datetime.utcnow().isoformat()
+        _TRENDING_STATE["phase"] = "failed" if _TRENDING_STATE["error"] else "finished"
+        try:
+            _persist_trending_state()
+        finally:
+            if _TRENDING_LOCK.locked():
+                _TRENDING_LOCK.release()
 
 
 @router.post("/generate-trending")
@@ -531,9 +565,47 @@ def generate_trending(
     request: Request, payload: TrendingGenerateIn, background_tasks: BackgroundTasks
 ) -> dict:
     """Dispara en background: fetch HN → Claude → posts trending + imágenes."""
-    if _TRENDING_STATE.get("running"):
+    if not _TRENDING_LOCK.acquire(blocking=False):
         return {"status": "already_running", **_TRENDING_STATE}
+    _TRENDING_STATE.update({"running": True, "error": None, "created": 0,
+                            "images_done": 0, "requested": payload.count,
+                            "stories_found": 0, "phase": "queued", "task_id": None,
+                            "started_at": datetime.utcnow().isoformat(), "finished_at": None})
+    try:
+        from app.task_history import begin_task
+
+        _TRENDING_STATE["task_id"] = begin_task("trending", _TRENDING_STATE)
+    except Exception:
+        _TRENDING_STATE.update({"running": False, "phase": "failed"})
+        _TRENDING_LOCK.release()
+        raise
     background_tasks.add_task(
         _run_generate_trending, payload.count, payload.language, payload.replace_drafts
     )
     return {"status": "started", "requested": payload.count}
+
+
+@router.delete("/trending/old")
+def delete_old_trending(
+    days: int = Query(default=7, ge=1, le=365), db: Session = Depends(get_db),
+) -> dict:
+    """Remove only old news drafts, preserving personal/scheduled/published posts."""
+    if not _TRENDING_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Espera a que termine la regeneración.")
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        rows = db.scalars(select(Post).where(
+            Post.kind == "trending", Post.status == "draft", Post.created_at < cutoff,
+        )).all()
+        if rows:
+            # Recoverable local backup; retain images referenced by the backup.
+            from app.config import settings
+            from app.profile_store import atomic_write_json
+            backup = settings.data_path / "post_backups" / f"news_{datetime.utcnow():%Y%m%d_%H%M%S_%f}.json"
+            atomic_write_json(backup, {"posts": [PostOut.model_validate(p).model_dump(mode="json") for p in rows]})
+            for post in rows:
+                db.delete(post)
+            db.commit()
+        return {"deleted": len(rows), "days": days}
+    finally:
+        _TRENDING_LOCK.release()

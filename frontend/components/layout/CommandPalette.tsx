@@ -14,6 +14,8 @@ import {
   RefreshCcw,
   Megaphone,
   Search,
+  UserRound,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -90,6 +92,10 @@ export function CommandPalette() {
 
   const nav: NavCmd[] = [
     { id: "today", label: "Today", hint: "Fresh jobs + outreach", icon: Sparkles, action: go("/today") },
+    { id: "boards", label: "Portales de empresas", hint: "Ofertas directas desde Greenhouse, Lever y Ashby", icon: Building2, action: go("/boards") },
+    { id: "interviews", label: "Entrevistas", hint: "Preparación y práctica por candidatura", icon: ContactRound, action: go("/interviews") },
+    { id: "campaigns", label: "Campañas", hint: "Búsquedas mundiales por profesión y país", icon: Globe, action: go("/campaigns") },
+    { id: "profile", label: "Mi perfil", hint: "Análisis y profesiones recomendadas", icon: UserRound, action: go("/profile") },
     { id: "pipeline", label: "Pipeline", hint: "Kanban of applications", icon: KanbanSquare, action: go("/pipeline") },
     { id: "metrics", label: "Metrics", hint: "Activity + API cost", icon: BarChart3, action: go("/metrics") },
     { id: "companies", label: "Companies", hint: "By employer", icon: Building2, action: go("/companies") },

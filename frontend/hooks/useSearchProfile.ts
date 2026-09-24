@@ -17,6 +17,9 @@ export function useUpdateSearchProfile() {
     mutationFn: (patch: SearchProfilePatch) => searchProfileApi.update(patch),
     onSuccess: (data) => {
       qc.setQueryData(["search-profile"], data);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["pipeline"] });
+      qc.invalidateQueries({ queryKey: ["metrics"] });
     },
   });
 }

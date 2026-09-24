@@ -120,10 +120,11 @@ class AnthropicProvider(LLMProvider):
             )
 
         def _call() -> Any:
+            # Anthropic SDK 1.x removed sampling parameters. Keep temperature in
+            # the shared provider interface, but use Claude's default sampling.
             return client.messages.create(
                 model=target_model,
                 max_tokens=max_tokens,
-                temperature=temperature,
                 system=system_block,
                 messages=[
                     {
